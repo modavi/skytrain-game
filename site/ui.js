@@ -82,7 +82,7 @@
       const face = (n) => `<div class="face f${n}" data-n="${n}">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((c) => `<i class="${PIPS[n].includes(c) ? 'pip' : ''}"></i>`).join('')}</div>`;
       body = `<h2>${name}, roll the die!</h2><p>You are at ${here}</p>${summary(s)}
         <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
-          <div class="die-wrap" id="die-wrap"><div class="die" id="die" role="button" tabindex="0" aria-label="Die. Press and hold to shake it, let go to throw it.">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div></div>
+          <div class="die-wrap" id="die-wrap"><div class="cam"><div class="die" id="die" role="button" tabindex="0" aria-label="Die. Press and hold to shake it, let go to throw it.">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div></div></div>
         <p class="muted hint" id="hint">Press and hold the die, then let go to throw it.</p>
         <div id="rollnum" class="rollnum" aria-live="polite"></div>
         <div id="outcome" class="stack"></div>
@@ -138,8 +138,8 @@
 
 
   // ---------- The die ----------
-  // Rotation (x, y) that brings each face to the front.
-  const FACE_ROT = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180] };
+  // Rotation (x, y, z) that puts each face on top, pointing at the ceiling.
+  const FACE_ROT = { 1: [90, 0, 0], 2: [0, 0, -90], 3: [0, 0, 0], 4: [180, 0, 0], 5: [0, 0, 90], 6: [-90, 0, 0] };
   const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let dieToken = 0;
 
@@ -166,7 +166,7 @@
     const token = dieToken, calm = reduced();
     const live = () => token === dieToken && el.isConnected;
     let mode = 'idle', raf = 0, holdStart = 0, last = 0;
-    let rx = -25, ry = 35, rz = 0;
+    let [rx, ry, rz] = [-25, 35, 0];
 
     function draw(h, scale) {
       wrap.style.transform = `translateY(${-h}px) scale(${scale})`;
@@ -200,9 +200,9 @@
       G.startMove(state, n); save(GAME_KEY, state); // decided now, so a refresh cannot re-roll
       document.getElementById('physical').hidden = true;
       hint.textContent = '';
-      const [bx, by] = FACE_ROT[n];
+      const [bx, by, bz] = FACE_ROT[n];
       const ahead = (cur, base) => base + 360 * Math.ceil((cur + 540 - base) / 360); // at least 1.5 more turns, ends exactly on the face
-      const sx = rx, sy = ry, sz = rz, tx = ahead(sx, bx), ty = ahead(sy, by), tz = ahead(sz, 0);
+      const sx = rx, sy = ry, sz = rz, tx = ahead(sx, bx), ty = ahead(sy, by), tz = ahead(sz, bz);
       const H = calm ? 0 : 170, T = calm ? 250 : 900, B1 = calm ? 0 : 260, B2 = calm ? 0 : 140, rotDur = T + B1;
       const arc = (u, peak) => peak * 4 * u * (1 - u);
       const t0 = performance.now();
