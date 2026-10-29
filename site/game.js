@@ -77,10 +77,42 @@
 
   function roll(rng = Math.random) { return 1 + Math.floor(rng() * 6); }
 
+  // Before rolling, a train with more than one way forward picks its direction.
+  const needsDirection = (s) => s.phase === 'roll' && !s.heading && forkOptions(s).length > 1;
+
+  function setHeading(s, station, how = 'choice') {
+    if (!needsDirection(s) || !forkOptions(s).includes(station)) throw new Error('Not a valid direction');
+    s.heading = station;
+    s.headingHow = how;
+    s.flips = [];
+    return s;
+  }
+
+  // Tossing a coin to pick between 2 to 4 ways: one flip for two ways, two flips for three or four
+  // (heads, heads = 1st way; heads, tails = 2nd; tails, heads = 3rd; tails, tails = 4th).
+  // A combination with no matching way means start the flips again, so every way is equally likely.
+  const flipsNeeded = (n) => Math.ceil(Math.log2(n));
+
+  function flipCoin(s, heads) {
+    const opts = forkOptions(s);
+    const flips = (s.flips || []).concat(heads);
+    if (flips.length < flipsNeeded(opts.length)) { s.flips = flips; return { done: false, flips }; }
+    s.flips = [];
+    const idx = flips.reduce((a, h) => a * 2 + (h ? 0 : 1), 0);
+    if (idx >= opts.length) return { done: false, again: true, flips };
+    setHeading(s, opts[idx], 'coin');
+    return { done: true, flips, picked: opts[idx] };
+  }
+
   function startMove(s, n, rng = Math.random) {
     s.remaining = n;
     s.lastMove = { player: s.player, roll: n, path: [s.pos], forks: [] };
     s.phase = 'moving';
+    if (s.heading) {
+      s.lastMove.forks.push({ at: s.pos, options: forkOptions(s), picked: s.heading, how: s.headingHow, before: true });
+      take(s, s.heading);
+      s.heading = null;
+    }
     return continueMove(s, rng);
   }
 
@@ -169,6 +201,6 @@
     return s;
   }
 
-  return { adj, lines, stations, linesBetween, newGame, forkOptions, roll, startMove, continueMove, chooseFork,
+  return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, setHeading, flipCoin, flipsNeeded, roll, startMove, continueMove, chooseFork,
     drawCard, startChallengeTimer, resolveChallenge, checkTime, endGame, total, cardById };
 });

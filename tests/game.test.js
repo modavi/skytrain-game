@@ -96,3 +96,53 @@ test('time limit: ends at once if idle, or after the current challenge', () => {
   assert.strictEqual(b.phase, 'over');
   assert.deepStrictEqual(b.result.winners, ['A']);
 });
+
+test('direction: asked before the roll only where there is more than one way forward', () => {
+  const a = G.newGame(settings({ start: 'Waterfront' }));
+  assert.ok(G.needsDirection(a));
+  const b = G.newGame(settings({ start: 'Granville' })); b.prev = 'Burrard';
+  assert.ok(!G.needsDirection(b)); // carries on towards Stadium–Chinatown
+  const c = G.newGame(settings({ start: 'Columbia' })); c.prev = 'New Westminster';
+  assert.ok(G.needsDirection(c));
+  const d = G.newGame(settings({ start: 'King George' })); d.prev = 'Surrey Central';
+  assert.ok(!G.needsDirection(d)); // dead end turns around
+});
+
+test('direction: the chosen way is where the first stop goes', () => {
+  const s = G.newGame(settings({ start: 'Waterfront' }));
+  assert.throws(() => G.setHeading(s, 'Gateway'));
+  G.setHeading(s, 'Vancouver City Centre');
+  assert.ok(!G.needsDirection(s));
+  G.startMove(s, 3);
+  assert.deepStrictEqual(s.lastMove.path, ['Waterfront', 'Vancouver City Centre', 'Yaletown–Roundhouse', 'Olympic Village']);
+  assert.strictEqual(s.heading, null);
+  assert.strictEqual(s.lastMove.forks[0].picked, 'Vancouver City Centre');
+});
+
+test('coin: one flip for two ways, heads is the first way', () => {
+  const s = G.newGame(settings({ start: 'Waterfront' }));
+  const opts = G.forkOptions(s);
+  const r = G.flipCoin(s, false);
+  assert.ok(r.done); assert.strictEqual(s.heading, opts[1]);
+  const t = G.newGame(settings({ start: 'Waterfront' }));
+  G.flipCoin(t, true); assert.strictEqual(t.heading, opts[0]);
+});
+
+test('coin: four ways take two flips and each way is equally likely', () => {
+  const mk = () => { const s = G.newGame(settings({ start: 'Main Street–Science World' })); s.pos = 'Commercial–Broadway'; s.prev = null; return s; };
+  assert.strictEqual(G.forkOptions(mk()).length, 4);
+  const seen = {};
+  for (const [a, b] of [[true, true], [true, false], [false, true], [false, false]]) {
+    const s = mk(); assert.ok(!G.flipCoin(s, a).done);
+    const r = G.flipCoin(s, b); assert.ok(r.done); seen[r.picked] = 1;
+  }
+  assert.strictEqual(Object.keys(seen).length, 4);
+});
+
+test('coin: three ways, tails-tails means flip again', () => {
+  const s = G.newGame(settings()); s.pos = 'Commercial–Broadway'; s.prev = 'Main Street–Science World';
+  assert.strictEqual(G.forkOptions(s).length, 3);
+  G.flipCoin(s, false);
+  const r = G.flipCoin(s, false);
+  assert.ok(r.again && !r.done); assert.ok(!s.heading); assert.deepStrictEqual(s.flips, []);
+});

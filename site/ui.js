@@ -70,17 +70,44 @@
   function summary(s) {
     const m = s.lastMove;
     if (!m) return '';
-    const forks = m.forks.map((f) => `<li>${f.how === 'coin' ? (f.options.length === 2 ? 'Coin flip' : 'Random pick') : 'Chose'} at <b>${esc(f.at)}</b>: ${esc(f.picked)}</li>`).join('');
+    const forks = m.forks.map((f) => `<li>${f.how === 'coin' ? (f.before || f.options.length === 2 ? 'Coin flip' : 'Random pick') : 'Chose'} at <b>${esc(f.at)}</b>: ${esc(f.picked)}</li>`).join('');
     return `<p class="path muted">${esc(s.settings.players[m.player])} rolled ${dieFace(m.roll)} (${m.roll}): ${m.path.map(esc).join(' → ')}</p>${forks ? `<ol class="log">${forks}</ol>` : ''}`;
+  }
+
+  const HT = (heads) => (heads ? 'Heads 🍁' : 'Tails 🚆');
+
+  function renderDirection(s, name, here) {
+    const opts = G.forkOptions(s);
+    const head = `<h2>${name}, which way?</h2><p>You are at ${here}</p><p>Pick a direction before you roll.</p>`;
+    const way = (o) => `${esc(o)} ${chips(G.linesBetween(s.pos, o))}`;
+    if (s.settings.fork !== 'coin') {
+      return head + `<div class="stack">${opts.map((o) => `<button class="alt" data-act="heading" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
+    }
+    const need = G.flipsNeeded(opts.length);
+    const combos = need === 1 ? [[true], [false]] : [[true, true], [true, false], [false, true], [false, false]];
+    const table = combos.map((c, i) => `<li><b>${c.map((h) => (h ? 'Heads' : 'Tails')).join(', ')}</b> → ${i < opts.length ? way(opts[i]) : 'flip again'}</li>`).join('');
+    const so = (s.flips || []).length ? `So far: ${s.flips.map((h) => (h ? 'Heads' : 'Tails')).join(', ')}. Flip again!` : '';
+    return head + `<ul class="map">${table}</ul>
+      <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
+        <div class="coin-wrap" id="coin-wrap"><div class="cam"><div class="coin" id="coin" role="button" tabindex="0" aria-label="Coin. Press and hold to shake it, let go to flip it.">
+          ${[-2, -1, 0, 1, 2].map((z) => `<div class="edge" style="transform:translateZ(${z}px)"></div>`).join('')}
+          <div class="side heads">🍁</div><div class="side tails">🚆</div></div></div></div></div>
+      <p class="muted hint" id="hint">${so || `Press and hold the coin${need > 1 ? ', flip it twice' : ''}. Let go to flip!`}</p>
+      <div id="coinresult" class="stack" aria-live="polite"></div>
+      <details id="physical"><summary class="muted">Flipped a real coin instead?</summary>
+        <div class="row" style="margin-top:6px"><button class="alt" data-act="physicalCoin" data-arg="1">Heads 🍁</button><button class="alt" data-act="physicalCoin" data-arg="0">Tails 🚆</button></div></details>`;
   }
 
   function renderGame(s) {
     const name = esc(s.settings.players[s.player]);
     const here = `<b>${esc(s.pos)}</b><br>${chips(G.lines[s.pos])}`;
     let body = '';
-    if (s.phase === 'roll') {
+    if (s.phase === 'roll' && G.needsDirection(s)) {
+      body = renderDirection(s, name, here);
+    } else if (s.phase === 'roll') {
       const face = (n) => `<div class="face f${n}" data-n="${n}">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((c) => `<i class="${PIPS[n].includes(c) ? 'pip' : ''}"></i>`).join('')}</div>`;
-      body = `<h2>${name}, roll the die!</h2><p>You are at ${here}</p>${summary(s)}
+      const next = s.heading || G.forkOptions(s)[0];
+      body = `<h2>${name}, roll the die!</h2><p>You are at ${here}</p><p>Heading toward <b>${esc(next)}</b></p>${summary(s)}
         <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
           <div class="die-wrap" id="die-wrap"><div class="cam"><div class="die" id="die" role="button" tabindex="0" aria-label="Die. Press and hold to shake it, let go to throw it.">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div></div></div>
         <p class="muted hint" id="hint">Press and hold the die, then let go to throw it.</p>
@@ -120,7 +147,7 @@
   function render() {
     dieToken++;
     app.innerHTML = state ? renderGame(state) : renderSetup();
-    if (state && state.phase === 'roll') setupDie();
+    if (state && state.phase === 'roll') (G.needsDirection(state) ? setupCoin : setupDie)();
     tick();
   }
 
@@ -137,11 +164,12 @@
   setInterval(tick, 1000);
 
 
-  // ---------- The die ----------
-  // Rotation (x, y, z) that puts each face on top, pointing at the ceiling.
+  // ---------- Throwing things: the die and the coin ----------
+  // Rotation (x, y, z) that puts each face of the die on top, pointing at the ceiling.
   const FACE_ROT = { 1: [90, 0, 0], 2: [0, 0, -90], 3: [0, 0, 0], 4: [180, 0, 0], 5: [0, 0, 90], 6: [-90, 0, 0] };
+  const COIN_ROT = { heads: [90, 0, 0], tails: [-90, 0, 0] };
   const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  let dieToken = 0;
+  let dieToken = 0; // bumped on every screen draw so old animations stop themselves
 
   function showOutcome() {
     const box = document.getElementById('outcome');
@@ -158,15 +186,17 @@
     box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
   }
 
-  function setupDie() {
-    const el = document.getElementById('die');
-    if (!el) return;
-    const wrap = document.getElementById('die-wrap'), shadow = document.getElementById('shadow');
-    const hint = document.getElementById('hint'), num = document.getElementById('rollnum');
+  // Press and hold to spin, let go to throw it up, watch it land.
+  // cfg: el, wrap (element ids), pose (start rotation), spin (spin weights per axis), minSpin (degrees of tumbling),
+  //      height, release() -> { result, angles } (decide and save the result), settled(result, api)
+  function throwable(cfg) {
+    const el = document.getElementById(cfg.el);
+    if (!el) return null;
+    const wrap = document.getElementById(cfg.wrap), shadow = document.getElementById('shadow'), hint = document.getElementById('hint');
     const token = dieToken, calm = reduced();
     const live = () => token === dieToken && el.isConnected;
     let mode = 'idle', raf = 0, holdStart = 0, last = 0;
-    let [rx, ry, rz] = [-25, 35, 0];
+    let [rx, ry, rz] = cfg.pose;
 
     function draw(h, scale) {
       wrap.style.transform = `translateY(${-h}px) scale(${scale})`;
@@ -181,7 +211,7 @@
       if (!live() || mode !== 'hold') return;
       const dt = Math.min(0.05, (t - last) / 1000); last = t;
       const speed = 300 + 700 * Math.min(1, (t - holdStart) / 1500);
-      if (!calm) { rx += speed * dt; ry += speed * dt * 1.3; rz += speed * dt * 0.5; }
+      if (!calm) { rx += speed * dt * cfg.spin[0]; ry += speed * dt * cfg.spin[1]; rz += speed * dt * cfg.spin[2]; }
       draw(14 + (calm ? 0 : Math.sin(t / 40) * 3), 1.12);
       raf = requestAnimationFrame(hold);
     }
@@ -196,14 +226,11 @@
     function release() {
       if (mode !== 'hold') return;
       mode = 'throw'; cancelAnimationFrame(raf);
-      const n = G.roll();
-      G.startMove(state, n); save(GAME_KEY, state); // decided now, so a refresh cannot re-roll
-      document.getElementById('physical').hidden = true;
+      const { result, angles: [bx, by, bz] } = cfg.release();
       hint.textContent = '';
-      const [bx, by, bz] = FACE_ROT[n];
-      const ahead = (cur, base) => base + 360 * Math.ceil((cur + 540 - base) / 360); // at least 1.5 more turns, ends exactly on the face
+      const ahead = (cur, base) => base + 360 * Math.ceil((cur + cfg.minSpin - base) / 360); // ends exactly on the target
       const sx = rx, sy = ry, sz = rz, tx = ahead(sx, bx), ty = ahead(sy, by), tz = ahead(sz, bz);
-      const H = calm ? 0 : 170, T = calm ? 250 : 900, B1 = calm ? 0 : 260, B2 = calm ? 0 : 140, rotDur = T + B1;
+      const H = calm ? 0 : cfg.height, T = calm ? 250 : 900, B1 = calm ? 0 : 260, B2 = calm ? 0 : 140, rotDur = T + B1;
       const arc = (u, peak) => peak * 4 * u * (1 - u);
       const t0 = performance.now();
       (function step(now) {
@@ -219,26 +246,76 @@
         draw(h, 1 + 0.12 * Math.max(0, 1 - e / 250));
         if (e < T + B1 + B2) return requestAnimationFrame(step);
         rx = tx; ry = ty; rz = tz; draw(0, 1);
-        reveal(n);
+        cfg.settled(result, api);
       })(t0);
     }
 
-    function reveal(n) {
-      setTimeout(() => {
-        if (!live()) return;
-        wrap.style.transform = ''; wrap.classList.add('lifted');
-        num.innerHTML = `<span class="n">${n}</span> stop${n === 1 ? '' : 's'}`;
-        num.classList.add('show');
-        setTimeout(() => { if (live()) showOutcome(); }, calm ? 200 : 1000);
-      }, calm ? 100 : 350);
-    }
-
+    const api = { calm, live, rearm() { mode = 'idle'; hint.textContent = 'Press and hold, then let go to flip again.'; } };
     el.addEventListener('pointerdown', (e) => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (x) {} press(); });
     el.addEventListener('pointerup', release);
     el.addEventListener('pointercancel', release);
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(); } });
     el.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') release(); });
+    return api;
+  }
+
+  function setupDie() {
+    const num = document.getElementById('rollnum');
+    throwable({
+      el: 'die', wrap: 'die-wrap', pose: [-25, 35, 0], spin: [1, 1.3, 0.5], minSpin: 540, height: 170,
+      release() {
+        const n = G.roll();
+        G.startMove(state, n); save(GAME_KEY, state); // decided now, so a refresh cannot re-roll
+        document.getElementById('physical').hidden = true;
+        return { result: n, angles: FACE_ROT[n] };
+      },
+      settled(n, api) {
+        setTimeout(() => {
+          if (!api.live()) return;
+          document.getElementById('die-wrap').style.transform = ''; document.getElementById('die-wrap').classList.add('lifted');
+          num.innerHTML = `<span class="n">${n}</span> stop${n === 1 ? '' : 's'}`;
+          num.classList.add('show');
+          setTimeout(() => { if (api.live()) showOutcome(); }, api.calm ? 200 : 1000);
+        }, api.calm ? 100 : 350);
+      },
+    });
+  }
+
+  // Shows how a coin result played out, then waits for the player to carry on to the die.
+  function showCoinResult(r) {
+    const box = document.getElementById('coinresult');
+    if (!box) return;
+    const said = r.flips.map((h) => (h ? 'Heads' : 'Tails')).join(', ');
+    if (r.done) {
+      box.innerHTML = `<div class="dest"><h3>${said}!</h3><span class="muted">Heading toward</span><h3>${esc(r.picked)}</h3>${chips(G.linesBetween(state.pos, r.picked))}</div>
+        <button data-act="continue">Now roll the die →</button>`;
+    } else if (r.again) {
+      box.innerHTML = `<p><b>${said}</b> doesn't match a direction. Flip again from the start!</p>`;
+    } else {
+      box.innerHTML = `<p><b>${said}.</b> Now flip again!</p>`;
+    }
+    box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+    box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
+  }
+
+  function setupCoin() {
+    throwable({
+      el: 'coin', wrap: 'coin-wrap', pose: [90, 0, 0], spin: [1, 0, 0], minSpin: 1260, height: 200,
+      release() {
+        const heads = Math.random() < 0.5;
+        const r = G.flipCoin(state, heads); save(GAME_KEY, state); // decided now, so a refresh cannot re-flip
+        document.getElementById('physical').hidden = true;
+        return { result: r, angles: COIN_ROT[heads ? 'heads' : 'tails'] };
+      },
+      settled(r, api) {
+        setTimeout(() => {
+          if (!api.live()) return;
+          showCoinResult(r);
+          if (!r.done) { document.getElementById('physical').hidden = false; api.rearm(); }
+        }, api.calm ? 100 : 400);
+      },
+    });
   }
 
   // ---------- Events ----------
@@ -264,6 +341,13 @@
         state = G.newGame({ players, mode: form.mode, goal: form.goal, minutes: form.minutes, fork: form.fork, start: form.start });
         return commit();
       }
+      case 'heading': G.setHeading(state, arg); return commit();
+      case 'physicalCoin': {
+        const r = G.flipCoin(state, arg === '1'); save(GAME_KEY, state);
+        if (r.done) { showCoinResult(r); document.getElementById('physical').hidden = true; } else { showCoinResult(r); }
+        return;
+      }
+      case 'continue': return render();
       case 'roll': G.startMove(state, G.roll()); return commit();
       case 'physical': G.startMove(state, +arg); return commit();
       case 'fork':
