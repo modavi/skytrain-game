@@ -21,7 +21,7 @@ test('map: every station can be reached from Waterfront', () => {
 
 test('moving: straight ride, no repeated back-and-forth', () => {
   const s = G.newGame(settings());
-  G.startMove(s, 4);
+  G.startMove(s, 4, seq(0)); // Waterfront is a fork at the start: 0 picks the Expo Line
   assert.strictEqual(s.phase, 'arrived');
   assert.strictEqual(s.pos, 'Main Street–Science World');
   assert.deepStrictEqual(s.lastMove.path.slice(0, 3), ['Waterfront', 'Burrard', 'Granville']);
