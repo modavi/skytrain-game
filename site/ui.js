@@ -76,7 +76,7 @@
       : players.map((p, i) => `<div class="pl ${i === s.player && s.phase !== 'over' ? 'on' : ''}"><span>${esc(p)}</span><b>${s.tokens[i]}${g}</b></div>`).join('');
     const clockChip = s.endsAt && s.phase !== 'over' ? '<div class="pl"><span>⏱</span><b class="clock" id="game-clock"></b></div>' : '';
     const stamps = s.stamps.length ? `<div class="pl" title="Stations stamped"><span>🚉</span><b>${s.stamps.length}</b></div>` : '';
-    return `<div class="topbar"><div class="scores">${scores}${stamps}${clockChip}</div><button class="alt small" data-act="newGame" aria-label="End game">✕</button></div>`;
+    return `<div class="topbar"><div class="scores">${scores}${stamps}${clockChip}</div><button class="alt small" data-act="map" aria-label="Open the map">🗺</button><button class="alt small" data-act="newGame" aria-label="End game">✕</button></div>`;
   }
 
   const where = (s) => `<div class="where">📍 <b>${esc(s.pos)}</b> ${chips(G.lines[s.pos])}</div>`;
@@ -235,7 +235,7 @@
     if (s.phase === 'fork') {
       box.innerHTML = `<div class="where"><b>Fork at ${esc(s.pos)}!</b> ${esc(s.settings.players[s.player])} picks the way. ${stops(s.remaining)} left.</div>${lineButtons(s, s.forkOptions, 'fork')}`;
     } else {
-      box.innerHTML = `<div class="dest"><span class="muted">Riding to</span> <h3>${esc(s.pos)}</h3> ${chips(G.lines[s.pos])}</div><button data-act="toDeck">Go to the deck →</button>`;
+      box.innerHTML = `<div class="dest"><span class="muted">Riding to</span> <h3>${esc(s.pos)}</h3> ${chips(G.lines[s.pos])}</div><div class="row"><button class="alt" data-act="toDeck">Skip the ride</button><button data-act="ride">🚆 Ride there →</button></div>`;
     }
     box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
   }
@@ -519,6 +519,8 @@
         G.chooseFork(state, arg); save(GAME_KEY, state);
         return document.getElementById('outcome') ? showOutcome() : render();
       case 'toDeck': return render();
+      case 'map': return SkytrainMapView.open({ state, mode: 'view' });
+      case 'ride': return SkytrainMapView.open({ state, mode: 'ride', onDone: render });
       case 'draw': return drawUI();
       case 'shuffle': return shuffleDeckUI();
       case 'startTimer': G.startChallengeTimer(state); return commit();

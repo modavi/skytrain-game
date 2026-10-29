@@ -4,8 +4,8 @@ A small online card game for the family. The site is hosted on Azure Static Web 
 
 ## Layout
 
-- `site/` - the game: `index.html`, `style.css`, and three scripts (`data.js` = the map and challenge cards, `game.js` = the rules, `ui.js` = the screens).
-- `tests/game.test.js` - tests for the rules. Run with `node --test tests/`.
+- `site/` - the game: `index.html`, `style.css`, and the scripts: `data.js` (stations and challenge cards), `game.js` (the rules), `ui.js` (the screens), `map.js` (our schematic map layout) and `mapview.js` (the map screen and train ride).
+- `tests/` - tests for the rules and the map. Run with `node --test tests/*.test.js`.
 - `.github/workflows/deploy.yml` - GitHub Action that publishes `site/` to Azure.
 
 ## How deploys work
@@ -23,6 +23,10 @@ A small online card game for the family. The site is hosted on Azure Static Web 
 5. The game ends when someone (or the team) reaches the goal, or when time runs out and the most tokens wins.
 
 The challenge cards in `site/data.js` are placeholders; edit them there. The game is saved in the browser on one device only; sharing it between phones is what the server version below is for.
+
+## The map
+
+`site/map.js` is our own simple drawing of the SkyTrain network (straight lines and 45 degree bends), based on the real station order. It is not TransLink's map artwork. The tests check that every station is there and that its track connections match the game rules exactly. The 🗺 button opens it (drag to move, pinch or +/- to zoom), and "Ride there" plays the train's trip after each roll.
 
 ## Later
 
