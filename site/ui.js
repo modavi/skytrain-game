@@ -28,14 +28,34 @@
   const presetOn = (k) => { const p = PRESETS[k]; return form.mode === p.mode && form.goal === p.goal && form.minutes === p.minutes; };
   const describe = () => `${form.mode === 'coop' ? 'Together' : 'Against each other'} · ${form.goal ? 'goal ' + form.goal + ' tokens' : 'no token goal'} · ${form.minutes ? form.minutes + ' min limit' : 'no time limit'}`;
 
+  let setupPanel = 'main'; // 'main' or 'options'
+
   function renderSetup() {
-    const opts = G.stations.slice().sort().map((s) => `<option ${s === form.start ? 'selected' : ''}>${esc(s)}</option>`).join('');
+    if (setupPanel === 'options') {
+      const opts = G.stations.slice().sort().map((s) => `<option ${s === form.start ? 'selected' : ''}>${esc(s)}</option>`).join('');
+      return `
+        <h1>More options</h1>
+        <section class="card stack">
+          <label>How do you play?
+            <select data-field="mode">
+              <option value="coop" ${form.mode === 'coop' ? 'selected' : ''}>Together (one shared pile of tokens)</option>
+              <option value="versus" ${form.mode === 'versus' ? 'selected' : ''}>Against each other (own tokens)</option>
+            </select></label>
+          <label>Token goal <span class="hint">0 means no goal</span>
+            <input type="number" min="0" max="50" data-field="goal" value="${form.goal}"></label>
+          <label>Time limit in minutes <span class="hint">0 means no limit; when time is up, most tokens wins</span>
+            <input type="number" min="0" max="600" data-field="minutes" value="${form.minutes}"></label>
+          <label>Start at
+            <select data-field="start">${opts}</select></label>
+          <button data-act="panel" data-arg="main">Done</button>
+        </section>`;
+    }
     return `
       <h1>Skytrain 🚆</h1>
       <section class="card stack">
-        <div class="stack tight">
-          ${form.players.map((p, i) => `<div class="row"><input data-field="name" data-i="${i}" value="${esc(p)}" maxlength="20" aria-label="Player ${i + 1} name">
-            ${form.players.length > 1 ? `<button class="bad small" data-act="removePlayer" data-arg="${i}" aria-label="Remove player ${i + 1}">✕</button>` : ''}</div>`).join('')}
+        <div class="players">
+          ${form.players.map((p, i) => `<div class="pname"><input data-field="name" data-i="${i}" value="${esc(p)}" maxlength="20" aria-label="Player ${i + 1} name">
+            ${form.players.length > 1 ? `<button class="x" data-act="removePlayer" data-arg="${i}" aria-label="Remove player ${i + 1}">✕</button>` : ''}</div>`).join('')}
           ${form.players.length < 6 ? '<button class="alt small" data-act="addPlayer">+ Add player</button>' : ''}
         </div>
         <div class="stack tight">
@@ -43,20 +63,7 @@
         </div>
         <div><span class="muted">At a fork in the track</span>
           <div class="row" style="margin-top:4px"><button class="${form.fork === 'coin' ? '' : 'alt'}" data-act="forkrule" data-arg="coin">🪙 Flip a coin</button><button class="${form.fork === 'choose' ? '' : 'alt'}" data-act="forkrule" data-arg="choose">👆 I choose</button></div></div>
-        <details><summary class="muted">More options: ${describe()}</summary>
-          <div class="stack tight" style="margin-top:8px">
-            <label>How do you play?
-              <select data-field="mode">
-                <option value="coop" ${form.mode === 'coop' ? 'selected' : ''}>Together (one shared pile of tokens)</option>
-                <option value="versus" ${form.mode === 'versus' ? 'selected' : ''}>Against each other (own tokens)</option>
-              </select></label>
-            <label>Token goal <span class="hint">0 means no goal</span>
-              <input type="number" min="0" max="50" data-field="goal" value="${form.goal}"></label>
-            <label>Time limit in minutes <span class="hint">0 means no limit; when time is up, most tokens wins</span>
-              <input type="number" min="0" max="600" data-field="minutes" value="${form.minutes}"></label>
-            <label>Start at
-              <select data-field="start">${opts}</select></label>
-          </div></details>
+        <button class="alt linkish" data-act="panel" data-arg="options">More options: ${describe()}</button>
         <button data-act="start">Start the game</button>
       </section>`;
   }
@@ -207,7 +214,7 @@
     G.checkTime(state);
     if (state.phase !== before) { save(GAME_KEY, state); return render(); }
     const g = document.getElementById('game-clock');
-    if (g && state.endsAt) g.textContent = state.timeUp ? "Time's up!" : clock(state.endsAt - Date.now());
+    if (g && state.endsAt) g.textContent = state.timeUp ? '0:00' : clock(state.endsAt - Date.now());
     const c = document.getElementById('chal-clock');
     if (c && state.timerEndsAt) { const left = state.timerEndsAt - Date.now(); c.textContent = left > 0 ? clock(left) : "Time's up!"; }
   }
@@ -487,12 +494,14 @@
     const arg = el.dataset.arg;
     switch (el.dataset.act) {
       case 'preset': Object.assign(form, PRESETS[arg]); delete form.label; save(FORM_KEY, form); return render();
+      case 'panel': setupPanel = arg; return render();
       case 'forkrule': form.fork = arg; save(FORM_KEY, form); return render();
       case 'addPlayer': form.players.push('Player ' + (form.players.length + 1)); save(FORM_KEY, form); return render();
       case 'removePlayer': form.players.splice(+arg, 1); save(FORM_KEY, form); return render();
       case 'start': {
         const players = form.players.map((p, i) => p.trim() || 'Player ' + (i + 1));
         if (!form.goal && !form.minutes) return alert('Pick a token goal or a time limit so the game can end.');
+        setupPanel = 'main';
         state = G.newGame({ players, mode: form.mode, goal: form.goal, minutes: form.minutes, fork: form.fork, start: form.start });
         return commit();
       }
