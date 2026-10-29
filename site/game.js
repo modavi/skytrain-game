@@ -170,21 +170,40 @@
     return continueMove(s, rng);
   }
 
+  // While riding through a station: carry on, or (at a transfer or a split where you change trains) switch.
+  //   kind 'on'     the only way the train goes on
+  //   kind 'fork'   the track really splits and the train takes one of the branches
+  //   kind 'switch' change to another line or branch here
+  function passOptions(s) {
+    const carry = forkOptions(s).map((to, _, all) => ({ to, line: s.line, kind: all.length > 1 ? 'fork' : 'on' }));
+    if (!TURN_POINTS.has(s.pos)) return carry;
+    const alts = startOptions(s)
+      .filter((o) => !(o.to === s.prev && o.line === s.line) && !carry.some((c) => sameWay(c, o)))
+      .map((o) => ({ to: o.to, line: o.line, kind: 'switch' }));
+    return carry.concat(alts);
+  }
+
+  function takeWay(s, opt) {
+    s.line = opt.line;
+    take(s, opt.to);
+  }
+
   function continueMove(s, rng = Math.random) {
     while (s.remaining > 0) {
-      const opts = forkOptions(s);
+      const opts = passOptions(s);
       if (opts.length > 1) {
-        if (s.settings.fork === 'coin') {
+        // a coin settles a plain split; whether to switch trains is always the rider's own choice
+        if (s.settings.fork === 'coin' && !opts.some((o) => o.kind === 'switch')) {
           const pick = opts[Math.floor(rng() * opts.length)];
-          s.lastMove.forks.push({ at: s.pos, options: opts, picked: pick, how: 'coin' });
-          take(s, pick);
+          s.lastMove.forks.push({ at: s.pos, options: opts.map((o) => o.to), picked: pick.to, how: 'coin' });
+          takeWay(s, pick);
         } else {
           s.phase = 'fork';
           s.forkOptions = opts;
           return s;
         }
       } else {
-        take(s, opts[0]);
+        takeWay(s, opts[0]);
       }
     }
     s.phase = 'arrived';
@@ -192,10 +211,12 @@
     return s;
   }
 
-  function chooseFork(s, station, rng = Math.random) {
-    if (s.phase !== 'fork' || !s.forkOptions.includes(station)) throw new Error('Not a valid choice');
-    s.lastMove.forks.push({ at: s.pos, options: s.forkOptions, picked: station, how: 'choice' });
-    take(s, station);
+  // choice: one of s.forkOptions, or just its station name
+  function chooseFork(s, choice, rng = Math.random) {
+    const opt = s.phase === 'fork' && s.forkOptions.find((o) => (typeof choice === 'string' ? o.to === choice : sameWay(o, choice)));
+    if (!opt) throw new Error('Not a valid choice');
+    s.lastMove.forks.push({ at: s.pos, options: s.forkOptions.map((o) => o.to), picked: opt.to, how: 'choice', switched: opt.kind === 'switch' });
+    takeWay(s, opt);
     return continueMove(s, rng);
   }
 
@@ -262,6 +283,6 @@
     return s;
   }
 
-  return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, startOptions, lookAhead, setHeading, flipCoin, spinWheel, roll, startMove, continueMove, chooseFork,
+  return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, startOptions, passOptions, lookAhead, setHeading, flipCoin, spinWheel, roll, startMove, continueMove, chooseFork,
     drawCard, shuffleDeck, startChallengeTimer, resolveChallenge, checkTime, endGame, total, cardById };
 });

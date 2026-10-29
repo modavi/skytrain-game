@@ -1,6 +1,6 @@
 (function () {
   const G = SkytrainGame, D = SkytrainData;
-  const GAME_KEY = 'skytrain.game.v2', FORM_KEY = 'skytrain.form.v1';
+  const GAME_KEY = 'skytrain.game.v3', FORM_KEY = 'skytrain.form.v1';
   const app = document.getElementById('app');
 
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
@@ -81,7 +81,11 @@
 
   const where = (s) => `<div class="where">📍 <b>${esc(s.pos)}</b> ${chips(G.lines[s.pos])}</div>`;
   const stops = (n) => `${n} stop${n === 1 ? '' : 's'}`;
-  const lineButtons = (s, opts, act) => `<div class="choices ${opts.length > 2 ? 'two' : ''}">${opts.map((o, i) => `<button class="alt" data-act="${act}" data-arg="${esc(o)}">${dotNum(i)} ${esc(o)}<br>${chips([s.line])}</button>`).join('')}</div>`;
+  const wayLabel = (s, o) => (o.kind === 'switch' ? `Switch to ${esc(o.to)}` : o.kind === 'on' ? (o.to === s.prev ? `Turn around to ${esc(o.to)}` : `Carry on to ${esc(o.to)}`) : esc(o.to));
+  const lineButtons = (s, opts, act) => `<div class="choices ${opts.length > 2 ? 'two' : ''}">${opts.map((o, i) => `<button class="${o.kind === 'switch' ? 'alt switch' : 'alt'}" data-act="${act}" data-arg="${i}">${dotNum(i)} ${wayLabel(s, o)}<br>${chips([o.line])}</button>`).join('')}</div>`;
+  const canSwitch = (s) => s.forkOptions.some((o) => o.kind === 'switch');
+  const forkTitle = (s) => (canSwitch(s) ? `Transfer at ${esc(s.pos)}?` : `Fork at ${esc(s.pos)}!`);
+  const forkNote = (s, name) => (canSwitch(s) ? `${name}: carry on or switch? ${stops(s.remaining)} left.` : `${name} picks the way. ${stops(s.remaining)} left.`);
 
   const deckCount = (s) => {
     const n = s.draw.length;
@@ -125,7 +129,7 @@
   function mapOptions(s) {
     const coin = s.phase === 'roll' && s.settings.fork === 'coin' && G.startOptions(s).length === 2;
     if (s.phase === 'fork') {
-      return s.forkOptions.map((to, i) => ({ path: G.lookAhead(s.pos, { to, line: s.line }, 3), color: WHEEL[i], badge: String(i + 1), text: `${esc(to)} ${chips([s.line])}` }));
+      return s.forkOptions.map((o, i) => ({ path: G.lookAhead(s.pos, o, 3), color: WHEEL[i], badge: String(i + 1), text: `${o.kind === 'switch' ? 'Switch to ' : ''}${esc(o.to)} ${chips([o.line])}` }));
     }
     return G.startOptions(s).map((o, i) => ({
       path: G.lookAhead(s.pos, o, 3), color: coin ? WHEEL[i * 3] : WHEEL[i], badge: coin ? ['🍁', '🚆'][i] : String(i + 1),
@@ -184,7 +188,7 @@
           <div id="rollnum" class="rollnum" aria-live="polite"></div>
           <div id="outcome" class="stack tight"></div></footer>`;
     } else if (s.phase === 'fork') {
-      body = `<header><h2>Fork at ${esc(s.pos)}!</h2><div class="where">${name} picks the way. ${stops(s.remaining)} left. ${mapBtn}</div></header><div class="viz mapviz" id="choicemap"></div>${lineButtons(s, s.forkOptions, 'fork')}`;
+      body = `<header><h2>${forkTitle(s)}</h2><div class="where">${forkNote(s, name)} ${mapBtn}</div></header><div class="viz mapviz" id="choicemap"></div>${lineButtons(s, s.forkOptions, 'fork')}`;
     } else if (s.phase === 'arrived') {
       body = `<header><h2>You arrived at ${esc(s.pos)}!</h2><div class="where">${chips(G.lines[s.pos])}</div></header>
         ${renderCardStage(s)}
@@ -253,11 +257,13 @@
     if (!box || !state) return;
     const s = state;
     if (s.phase === 'fork') {
-      box.innerHTML = `<div class="where"><b>Fork at ${esc(s.pos)}!</b> ${esc(s.settings.players[s.player])} picks the way. ${stops(s.remaining)} left. ${mapBtn}</div>${lineButtons(s, s.forkOptions, 'fork')}`;
+      box.innerHTML = `<div class="where"><b>${forkTitle(s)}</b> ${forkNote(s, esc(s.settings.players[s.player]))} ${mapBtn}</div>${lineButtons(s, s.forkOptions, 'fork')}`;
     } else {
       box.innerHTML = `<div class="dest"><span class="muted">Riding to</span> <h3>${esc(s.pos)}</h3> ${chips(G.lines[s.pos])}</div><div class="row"><button class="alt" data-act="toDeck">Skip the ride</button><button data-act="ride">🚆 Ride there →</button></div>`;
     }
     box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+    const num = document.getElementById('rollnum');
+    if (num) num.classList.add('compact');   // make room for the choices
   }
 
   // Press and hold to spin, let go to throw it up, watch it land.
@@ -537,7 +543,7 @@
       case 'roll': G.startMove(state, G.roll()); return commit();
       case 'physical': G.startMove(state, +arg); return commit();
       case 'fork':
-        G.chooseFork(state, arg); save(GAME_KEY, state);
+        G.chooseFork(state, state.forkOptions[+arg]); save(GAME_KEY, state);
         return document.getElementById('outcome') ? showOutcome() : render();
       case 'toDeck': return render();
       case 'map': return SkytrainMapView.open({ state, mode: 'view' });

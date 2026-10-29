@@ -130,3 +130,6 @@ button.linkish { border:0; font-weight:500; font-size:.88rem; padding:4px 6px; c
 .mbadge { font-size:7.4px; font-weight:800; fill:#fff; font-family:system-ui, sans-serif; pointer-events:none; }
 .choices .dot { margin-right:2px; }
 .maptitle { white-space:nowrap; }
+button.switch { border-style:dashed; }
+.rollnum.compact { font-size:.95rem; } .rollnum.compact .n { font-size:1.7rem; }
+.sf .choices { gap:8px; } .sf .choices button { padding:8px 6px; }

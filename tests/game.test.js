@@ -26,6 +26,9 @@ const ride = (s, n, picks = []) => {   // ride n stops, answering any fork from 
   while (s.phase === 'fork') G.chooseFork(s, picks.shift() || s.forkOptions[0]);
   return s.lastMove.path;
 };
+const stations = (s) => s.forkOptions.map((o) => o.to).sort();
+const noop = () => {
+};
 
 test('moving: straight ride along the Expo Line', () => {
   const s = riding('Burrard', 'Waterfront', 'expo');
@@ -54,11 +57,12 @@ test('moving: the Expo Line splits at Columbia, but only on the way out from New
   const s = riding('New Westminster', '22nd Street', 'expo', { fork: 'choose' });
   G.startMove(s, 3);
   assert.strictEqual(s.phase, 'fork');
-  assert.deepStrictEqual(s.forkOptions.slice().sort(), ['Sapperton', 'Scott Road']);
+  assert.deepStrictEqual(stations(s), ['Sapperton', 'Scott Road']);
+  assert.ok(s.forkOptions.every((o) => o.kind === 'fork'));
   assert.deepStrictEqual(ride(riding('New Westminster', '22nd Street', 'expo'), 3, ['Scott Road']), ['New Westminster', 'Columbia', 'Scott Road', 'Gateway']);
 });
 
-test('moving: you cannot ride from Sapperton to Scott Road, or from Scott Road to Sapperton', () => {
+test('moving: carrying on from Sapperton goes to New Westminster, never straight to Scott Road', () => {
   assert.deepStrictEqual(ride(riding('Sapperton', 'Braid', 'expo'), 3), ['Sapperton', 'Columbia', 'New Westminster', '22nd Street']);
   assert.deepStrictEqual(ride(riding('Gateway', 'Surrey Central', 'expo'), 3), ['Gateway', 'Scott Road', 'Columbia', 'New Westminster']);
 });
@@ -69,7 +73,7 @@ test('moving: the Canada Line splits at Bridgeport, and Richmond and the airport
   const s = riding('Langara–49th Avenue', 'Oakridge–41st Avenue', 'canada', { fork: 'choose' });
   G.startMove(s, 3);
   assert.strictEqual(s.phase, 'fork');
-  assert.deepStrictEqual(s.forkOptions.slice().sort(), ['Capstan', 'Templeton']);
+  assert.deepStrictEqual(stations(s), ['Capstan', 'Templeton']);
 });
 
 test('moving: a coin decides a split mid-ride when the setting is coin', () => {
@@ -155,27 +159,97 @@ test('look ahead: shows the next few stations along a way out, and stops at a sp
   assert.deepStrictEqual(G.lookAhead('Production Way–University', { to: 'Lougheed Town Centre', line: 'expo' }, 4), ['Production Way–University', 'Lougheed Town Centre', 'Braid', 'Sapperton', 'Columbia']);
 });
 
-test('real network: thousands of random rides never make a move the trains cannot', () => {
+test('transfers: passing a transfer station asks whether to carry on or switch lines', () => {
+  const s = riding('Main Street–Science World', 'Stadium–Chinatown', 'expo', { fork: 'choose' });
+  G.startMove(s, 3);
+  assert.strictEqual(s.phase, 'fork');
+  assert.strictEqual(s.pos, 'Commercial–Broadway');
+  assert.strictEqual(s.remaining, 2);
+  assert.deepStrictEqual(s.forkOptions.map((o) => `${o.kind} ${o.to} ${o.line}`),
+    ['on Nanaimo expo', 'switch VCC–Clark millennium', 'switch Renfrew millennium']);
+});
+
+test('transfers: switching keeps your remaining stops and carries on along the new line', () => {
+  const s = riding('Main Street–Science World', 'Stadium–Chinatown', 'expo', { fork: 'choose' });
+  G.startMove(s, 4);
+  G.chooseFork(s, 'Renfrew');
+  assert.strictEqual(s.phase, 'arrived');
+  assert.deepStrictEqual(s.lastMove.path, ['Main Street–Science World', 'Commercial–Broadway', 'Renfrew', 'Rupert', 'Gilmore']);
+  assert.strictEqual(s.line, 'millennium');
+  assert.strictEqual(s.lastMove.forks[0].switched, true);
+});
+
+test('transfers: a coin never makes the switch for you', () => {
+  const s = riding('Main Street–Science World', 'Stadium–Chinatown', 'expo', { fork: 'coin' });
+  G.startMove(s, 3, seq(0.99));
+  assert.strictEqual(s.phase, 'fork');
+  assert.strictEqual(s.pos, 'Commercial–Broadway');
+});
+
+test('transfers: no question when the ride ends there, or at an ordinary station', () => {
+  const end = riding('Main Street–Science World', 'Stadium–Chinatown', 'expo', { fork: 'choose' });
+  G.startMove(end, 1);
+  assert.strictEqual(end.phase, 'arrived');                       // you stop at the transfer; you choose your way out next turn
+  assert.ok(G.needsDirection(Object.assign(end, { phase: 'roll' })));
+  const plain = riding('Burrard', 'Waterfront', 'expo', { fork: 'choose' });
+  G.startMove(plain, 4);
+  assert.strictEqual(plain.phase, 'arrived');
+});
+
+test('transfers: at the end of the line you can turn around or change to the other line', () => {
+  const s = riding('Burrard', 'Granville', 'expo', { fork: 'choose' });
+  G.startMove(s, 3);
+  assert.strictEqual(s.pos, 'Waterfront');
+  assert.deepStrictEqual(s.forkOptions.map((o) => `${o.to} ${o.line}`), ['Burrard expo', 'Vancouver City Centre canada']);
+  G.chooseFork(s, 'Vancouver City Centre');
+  assert.deepStrictEqual(s.lastMove.path, ['Burrard', 'Waterfront', 'Vancouver City Centre', 'Yaletown–Roundhouse']);
+  assert.strictEqual(s.line, 'canada');
+});
+
+test('transfers: at Columbia you can change branches, and that is how Sapperton connects to Scott Road', () => {
+  const s = riding('Braid', 'Lougheed Town Centre', 'expo', { fork: 'choose' });
+  G.startMove(s, 4);
+  assert.strictEqual(s.pos, 'Columbia');
+  assert.deepStrictEqual(s.forkOptions.map((o) => `${o.kind} ${o.to}`), ['on New Westminster', 'switch Scott Road']);
+  G.chooseFork(s, 'Scott Road');
+  assert.deepStrictEqual(s.lastMove.path, ['Braid', 'Sapperton', 'Columbia', 'Scott Road', 'Gateway']);
+});
+
+test('transfers: where two lines share track, switching lines changes where you end up', () => {
+  const s = riding('Braid', 'Sapperton', 'expo', { fork: 'choose' });
+  G.startMove(s, 3);
+  assert.strictEqual(s.pos, 'Lougheed Town Centre');
+  assert.deepStrictEqual(s.forkOptions.map((o) => `${o.kind} ${o.to} ${o.line}`),
+    ['on Production Way–University expo', 'switch Production Way–University millennium', 'switch Burquitlam millennium']);
+  G.chooseFork(s, { to: 'Production Way–University', line: 'millennium' });
+  assert.strictEqual(s.pos, 'Production Way–University');            // the next stop is a transfer too, so you are asked again
+  assert.deepStrictEqual(s.forkOptions.map((o) => `${o.kind} ${o.to}`), ['on Lake City Way', 'switch Lougheed Town Centre']);
+  G.chooseFork(s, 'Lake City Way');
+  assert.deepStrictEqual(s.lastMove.path, ['Braid', 'Lougheed Town Centre', 'Production Way–University', 'Lake City Way']);
+});
+
+test('real network: thousands of random rides only use real track, and only change line where you can change trains', () => {
   let seed = 12345; const rng = () => (seed = (seed * 1664525 + 1013904223) % 4294967296) / 4294967296;
-  const through = { 'Columbia': ['Sapperton', 'Scott Road'], 'Bridgeport': ['Capstan', 'Templeton'] };
+  const pickable = new Set(['Waterfront', 'Commercial–Broadway', 'Lougheed Town Centre', 'Production Way–University', 'Columbia', 'Bridgeport']);
+  let switches = 0;
   for (let game = 0; game < 300; game++) {
     const s = G.newGame(settings({ start: G.stations[Math.floor(rng() * G.stations.length)], fork: game % 2 ? 'coin' : 'choose' }), rng);
     for (let turn = 0; turn < 12; turn++) {
       if (G.needsDirection(s)) { const o = G.startOptions(s); G.setHeading(s, o[Math.floor(rng() * o.length)]); }
+      let line = null, lastAt = null;
       G.startMove(s, 1 + Math.floor(rng() * 6), rng);
-      while (s.phase === 'fork') G.chooseFork(s, s.forkOptions[Math.floor(rng() * s.forkOptions.length)]);
-      const path = s.lastMove.path;
-      for (let i = 1; i < path.length; i++) {
-        assert.ok(G.adj[path[i - 1]].includes(path[i]), `${path[i - 1]} to ${path[i]} is a real stretch of track`);
-        assert.ok(G.linesBetween(path[i - 1], path[i]).includes(s.line), `${path[i - 1]} to ${path[i]} is on the ${s.line} line`);
-        if (i >= 2 && through[path[i - 1]]) {
-          const pair = [path[i - 2], path[i]];
-          assert.ok(!(through[path[i - 1]].includes(pair[0]) && through[path[i - 1]].includes(pair[1])), `no through running at ${path[i - 1]}: ${path.join(' > ')}`);
-        }
+      while (s.phase === 'fork') {
+        const before = s.line;
+        G.chooseFork(s, s.forkOptions[Math.floor(rng() * s.forkOptions.length)]);
+        if (s.line !== before) { switches++; assert.ok(pickable.has(s.lastMove.forks[s.lastMove.forks.length - 1].at), 'switched lines at a place where you can change trains'); }
       }
+      const path = s.lastMove.path;
+      for (let i = 1; i < path.length; i++) assert.ok(G.adj[path[i - 1]].includes(path[i]), `${path[i - 1]} to ${path[i]} is a real stretch of track`);
+      assert.strictEqual(s.phase, 'arrived');
       s.phase = 'roll';
     }
   }
+  assert.ok(switches > 100, 'the random rides did switch lines now and then');
 });
 
 test('cards: deck reshuffles, token and turn rotation, first-to-goal wins', () => {
