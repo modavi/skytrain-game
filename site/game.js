@@ -154,6 +154,13 @@
     return cardById(s.card);
   }
 
+  // Shuffle what is left in the deck. If it has run out, the discards come back in.
+  function shuffleDeck(s, rng = Math.random) {
+    if (!s.draw.length) { s.draw = s.discard; s.discard = []; }
+    s.draw = shuffle(s.draw, rng);
+    return s;
+  }
+
   function startChallengeTimer(s, now = Date.now()) {
     const c = cardById(s.card);
     if (c && c.minutes) s.timerEndsAt = now + c.minutes * 60000;
@@ -201,5 +208,5 @@
   }
 
   return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, setHeading, flipCoin, spinWheel, roll, startMove, continueMove, chooseFork,
-    drawCard, startChallengeTimer, resolveChallenge, checkTime, endGame, total, cardById };
+    drawCard, shuffleDeck, startChallengeTimer, resolveChallenge, checkTime, endGame, total, cardById };
 });

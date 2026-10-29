@@ -74,6 +74,42 @@
     return `<p class="path muted">${esc(s.settings.players[m.player])} rolled ${dieFace(m.roll)} (${m.roll}): ${m.path.map(esc).join(' → ')}</p>${forks ? `<ol class="log">${forks}</ol>` : ''}`;
   }
 
+  const deckCount = (s) => {
+    const n = s.draw.length;
+    return n ? `${n} card${n === 1 ? '' : 's'} in the deck` : `The deck is empty, so the used cards will be shuffled back in`;
+  };
+
+  function cardFront(c, s) {
+    return `<div class="cf-top">Challenge</div>
+      <h3 class="cf-title">${esc(c.title)}</h3>
+      <p class="cf-text">${esc(c.text)}</p>
+      <div class="cf-foot">${c.minutes ? `<span class="cf-time">⏱ ${c.minutes} min</span>` : '<span class="cf-time">No timer</span>'}<span class="cf-at">${esc(s.pos)}</span></div>`;
+  }
+
+  // The deck lying on the table (arrived) or the card already turned over (challenge).
+  function renderCardStage(s) {
+    const c = s.card ? G.cardById(s.card) : null;
+    const layers = Math.max(1, Math.min(s.draw.length, 10));
+    const deck = c ? '' : `<div class="deckshadow"></div>
+      <div class="deck3d" id="deck3d" data-act="draw" role="button" tabindex="0" aria-label="Deck of challenge cards. Tap to draw the top card.">
+        ${Array.from({ length: layers }, (_, i) => `<div class="dcard cback" style="transform:translateZ(${(i * 1.8).toFixed(1)}px)">${i === layers - 1 ? '<span class="cb-icon">🚆</span>' : ''}</div>`).join('')}
+      </div>`;
+    return `<div class="cardstage" id="cardstage">${deck}
+      <div class="flipper ${c ? 'revealed' : ''}" id="flipper"><div class="cface cback"><span class="cb-icon big">🚆</span></div><div class="cface cfront" id="cfront">${c ? cardFront(c, s) : ''}</div></div></div>`;
+  }
+
+  function challengeControls(s) {
+    const c = G.cardById(s.card);
+    const name = esc(s.settings.players[s.player]);
+    const timer = c.minutes
+      ? (s.timerEndsAt ? `<p class="clock" style="font-size:1.6rem;text-align:center" id="chal-clock"></p>`
+        : `<button class="alt" data-act="startTimer">Start ${c.minutes}-minute timer</button>`)
+      : '';
+    return `<p class="muted">${name}'s challenge, at ${esc(s.pos)}</p>${timer}
+      ${s.timeUp ? '<p><b>Time is up!</b> Finish this challenge and the game ends.</p>' : ''}
+      <div class="row"><button class="ok" data-act="done">We did it! +1 token</button><button class="bad" data-act="skip">Skip</button></div>`;
+  }
+
   const WHEEL = ['#d9482b', '#e0a100', '#1f9d55', '#3a74c9'];
 
   function renderDirection(s, name, here) {
@@ -130,17 +166,13 @@
       body = `<h2>Fork at ${esc(s.pos)}!</h2><p>${name} picks the way. ${s.remaining} stop${s.remaining === 1 ? '' : 's'} left.</p>
         <div class="stack">${s.forkOptions.map((o) => `<button class="alt" data-act="fork" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
     } else if (s.phase === 'arrived') {
-      body = `<h2>You arrived!</h2><div class="big">🚉</div><p style="text-align:center">${here}</p>${summary(s)}
-        <button data-act="draw">Draw a challenge card</button>`;
+      body = `<h2>You arrived at ${esc(s.pos)}!</h2><p>${chips(G.lines[s.pos])}</p>${summary(s)}
+        ${renderCardStage(s)}
+        <p class="muted hint" id="deckhint">${deckCount(s)}. Tap the deck or press Draw.</p>
+        <div class="row"><button class="alt" data-act="shuffle" id="shuffle-btn">🔀 Shuffle</button><button data-act="draw" id="draw-btn">Draw a card</button></div>
+        <div id="challenge-controls" class="stack"></div>`;
     } else if (s.phase === 'challenge') {
-      const c = G.cardById(s.card);
-      const timer = c.minutes
-        ? (s.timerEndsAt ? `<p class="clock" style="font-size:1.6rem;text-align:center" id="chal-clock"></p>`
-          : `<button class="alt" data-act="startTimer">Start ${c.minutes}-minute timer</button>`)
-        : '';
-      body = `<h2>${esc(c.title)}</h2><p>${esc(c.text)}</p><p class="muted">At ${esc(s.pos)} · ${name}'s challenge</p>${timer}
-        ${s.timeUp ? '<p><b>Time is up!</b> Finish this challenge and the game ends.</p>' : ''}
-        <div class="row"><button class="ok" data-act="done">We did it! +1 token</button><button class="bad" data-act="skip">Skip</button></div>`;
+      body = `<h2>${name}'s challenge</h2>${renderCardStage(s)}<div id="challenge-controls" class="stack">${challengeControls(s)}</div>`;
     } else if (s.phase === 'over') {
       const r = s.result;
       const msg = r.mode === 'coop'
@@ -191,7 +223,7 @@
         ${s.forkOptions.map((o) => `<button class="alt" data-act="fork" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}`;
     } else {
       box.innerHTML = `<div class="dest"><span class="muted">You are riding to</span><div class="big">🚉</div><h3>${esc(s.pos)}</h3>${chips(G.lines[s.pos])}</div>${summary(s)}
-        <button data-act="draw">Draw a challenge card</button>`;
+        <button data-act="toDeck">Go to the deck →</button>`;
     }
     box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
     box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
@@ -368,6 +400,78 @@
     bindHold(el, press, release);
   }
 
+  // ---------- The deck ----------
+  let deckBusy = false;
+
+  function shuffleAnimation() {
+    const layers = [...document.querySelectorAll('#deck3d .dcard')];
+    const n = layers.length;
+    layers.forEach((el, i) => {
+      const z = i * 1.8, dir = i % 2 ? 1 : -1;
+      el.animate([
+        { transform: `translateZ(${z}px)` },
+        { transform: `translateX(${dir * 110}px) translateY(${dir * -12}px) translateZ(${z}px) rotateZ(${dir * 9}deg)`, offset: 0.3 },
+        { transform: `translateZ(${z}px)`, offset: 0.55 },
+        { transform: `translateX(${-dir * 90}px) translateZ(${z}px) rotateZ(${-dir * 7}deg)`, offset: 0.75 },
+        { transform: `translateZ(${z}px)` },
+      ], { duration: 1200, delay: (n - 1 - i) * 45, easing: 'ease-in-out' });
+    });
+    return 1200 + n * 45;
+  }
+
+  function shuffleDeckUI() {
+    if (deckBusy || !state || state.phase !== 'arrived') return;
+    deckBusy = true;
+    G.shuffleDeck(state); save(GAME_KEY, state); // saved straight away: the new order is real
+    const hint = document.getElementById('deckhint');
+    const ms = reduced() ? 150 : shuffleAnimation();
+    hint.textContent = 'Shuffling…';
+    const token = dieToken;
+    setTimeout(() => {
+      deckBusy = false;
+      if (token === dieToken) hint.textContent = 'Shuffled! ' + deckCount(state) + '.';
+    }, ms);
+  }
+
+  function drawUI() {
+    if (deckBusy || !state || state.phase !== 'arrived') return;
+    deckBusy = true;
+    const token = dieToken;
+    const layers = [...document.querySelectorAll('#deck3d .dcard')];
+    const c = G.drawCard(state); save(GAME_KEY, state); // decided now, so a refresh cannot re-draw
+    const flipper = document.getElementById('flipper');
+    document.getElementById('cfront').innerHTML = cardFront(c, state);
+    document.getElementById('shuffle-btn').disabled = true;
+    document.getElementById('draw-btn').disabled = true;
+    document.getElementById('deckhint').textContent = '';
+
+    const done = () => {
+      deckBusy = false;
+      if (token !== dieToken || !flipper.isConnected) return;
+      flipper.classList.add('revealed');
+      const deck = document.getElementById('deck3d');
+      if (deck) deck.style.display = 'none';
+      const shadow = document.querySelector('.deckshadow'); if (shadow) shadow.style.display = 'none';
+      const box = document.getElementById('challenge-controls');
+      box.innerHTML = challengeControls(state);
+      box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+      box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
+      document.querySelector('.card h2').textContent = state.settings.players[state.player] + "'s challenge";
+      ['shuffle-btn', 'draw-btn'].forEach((id) => { const b = document.getElementById(id); if (b) b.parentNode.style.display = 'none'; });
+    };
+
+    if (reduced()) { done(); return; }
+    const top = Math.max(0, layers.length - 1) * 1.8;
+    if (layers.length) layers[layers.length - 1].style.visibility = 'hidden';
+    flipper.classList.add('flying');
+    const lying = `translate(-50%,-50%) rotateX(52deg) translateZ(${top}px) scale(0.8636)`;
+    flipper.animate([
+      { transform: lying },
+      { transform: 'translate(-50%,-66%) translateZ(110px) rotateX(24deg) rotateY(80deg) scale(0.95)', offset: 0.45 },
+      { transform: 'translate(-50%,-50%) rotateX(0deg) rotateY(180deg) scale(1)' },
+    ], { duration: 1000, easing: 'cubic-bezier(.3,.7,.3,1)', fill: 'forwards' }).onfinish = done;
+  }
+
   // ---------- Events ----------
   app.addEventListener('input', (e) => {
     const f = e.target.dataset.field;
@@ -404,7 +508,9 @@
       case 'fork':
         G.chooseFork(state, arg); save(GAME_KEY, state);
         return document.getElementById('outcome') ? showOutcome() : render();
-      case 'draw': G.drawCard(state); return commit();
+      case 'toDeck': return render();
+      case 'draw': return drawUI();
+      case 'shuffle': return shuffleDeckUI();
       case 'startTimer': G.startChallengeTimer(state); return commit();
       case 'done': G.resolveChallenge(state, true); return commit();
       case 'skip': G.resolveChallenge(state, false); return commit();
@@ -412,6 +518,10 @@
         if (state.phase !== 'over' && !confirm('End this game and start over?')) return;
         state = null; return commit();
     }
+  });
+
+  app.addEventListener('keydown', (e) => {
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.id === 'deck3d') { e.preventDefault(); drawUI(); }
   });
 
   render();

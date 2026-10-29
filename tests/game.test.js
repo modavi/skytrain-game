@@ -145,3 +145,22 @@ test('wheel: one spin settles three or four ways, each equally likely', () => {
     assert.strictEqual(seen.size, n);
   }
 });
+
+test('deck: shuffling keeps every card and reorders only what is left', () => {
+  const s = G.newGame(settings());
+  G.drawCard(s); G.drawCard(s);
+  const before = s.draw.slice(), discarded = s.discard.slice();
+  G.shuffleDeck(s, seq(0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+  assert.deepStrictEqual(s.draw.slice().sort(), before.slice().sort());
+  assert.notDeepStrictEqual(s.draw, before);
+  assert.deepStrictEqual(s.discard, discarded);
+});
+
+test('deck: shuffling an empty deck brings the discards back', () => {
+  const s = G.newGame(settings());
+  for (let i = 0; i < D.CARDS.length; i++) G.drawCard(s);
+  assert.strictEqual(s.draw.length, 0);
+  G.shuffleDeck(s);
+  assert.strictEqual(s.draw.length, D.CARDS.length);
+  assert.strictEqual(s.discard.length, 0);
+});
