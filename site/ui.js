@@ -24,59 +24,61 @@
   function commit() { save(GAME_KEY, state); render(); }
 
   // ---------- Setup ----------
+  const PRESET_LABELS = { together: 'Together: reach 5 tokens', race: 'Race: first to 5 tokens', clock: 'Beat the clock: 60 minutes' };
+  const presetOn = (k) => { const p = PRESETS[k]; return form.mode === p.mode && form.goal === p.goal && form.minutes === p.minutes; };
+  const describe = () => `${form.mode === 'coop' ? 'Together' : 'Against each other'} · ${form.goal ? 'goal ' + form.goal + ' tokens' : 'no token goal'} · ${form.minutes ? form.minutes + ' min limit' : 'no time limit'}`;
+
   function renderSetup() {
     const opts = G.stations.slice().sort().map((s) => `<option ${s === form.start ? 'selected' : ''}>${esc(s)}</option>`).join('');
     return `
-      <h1>Skytrain</h1>
-      <p class="muted">Roll the die, ride that many stops, then do a challenge at the station.</p>
+      <h1>Skytrain 🚆</h1>
       <section class="card stack">
-        <h2>Quick start</h2>
-        ${Object.entries(PRESETS).map(([k, p]) => `<button class="alt" data-act="preset" data-arg="${k}">${p.label}</button>`).join('')}
-      </section>
-      <section class="card stack">
-        <h2>Players</h2>
-        ${form.players.map((p, i) => `<div class="row"><input data-field="name" data-i="${i}" value="${esc(p)}" maxlength="20" aria-label="Player ${i + 1} name">
-          ${form.players.length > 1 ? `<button class="bad small" data-act="removePlayer" data-arg="${i}" aria-label="Remove player">✕</button>` : ''}</div>`).join('')}
-        ${form.players.length < 6 ? '<button class="alt" data-act="addPlayer">+ Add player</button>' : ''}
-        <label>How do you play?
-          <select data-field="mode">
-            <option value="coop" ${form.mode === 'coop' ? 'selected' : ''}>Together (one shared pile of tokens)</option>
-            <option value="versus" ${form.mode === 'versus' ? 'selected' : ''}>Against each other (own tokens)</option>
-          </select></label>
-        <label>Token goal <span class="hint">First to reach it wins (or the team wins). 0 means no goal.</span>
-          <input type="number" min="0" max="50" data-field="goal" value="${form.goal}"></label>
-        <label>Time limit in minutes <span class="hint">0 means no limit. When time is up, most tokens wins.</span>
-          <input type="number" min="0" max="600" data-field="minutes" value="${form.minutes}"></label>
-        <label>When the train reaches a fork
-          <select data-field="fork">
-            <option value="coin" ${form.fork === 'coin' ? 'selected' : ''}>Flip a coin (random)</option>
-            <option value="choose" ${form.fork === 'choose' ? 'selected' : ''}>The person who rolled chooses</option>
-          </select></label>
-        <label>Start at
-          <select data-field="start">${opts}</select></label>
+        <div class="stack tight">
+          ${form.players.map((p, i) => `<div class="row"><input data-field="name" data-i="${i}" value="${esc(p)}" maxlength="20" aria-label="Player ${i + 1} name">
+            ${form.players.length > 1 ? `<button class="bad small" data-act="removePlayer" data-arg="${i}" aria-label="Remove player ${i + 1}">✕</button>` : ''}</div>`).join('')}
+          ${form.players.length < 6 ? '<button class="alt small" data-act="addPlayer">+ Add player</button>' : ''}
+        </div>
+        <div class="stack tight">
+          ${Object.keys(PRESETS).map((k) => `<button class="${presetOn(k) ? '' : 'alt'}" data-act="preset" data-arg="${k}" aria-pressed="${presetOn(k)}">${PRESET_LABELS[k]}</button>`).join('')}
+        </div>
+        <div><span class="muted">At a fork in the track</span>
+          <div class="row" style="margin-top:4px"><button class="${form.fork === 'coin' ? '' : 'alt'}" data-act="forkrule" data-arg="coin">🪙 Flip a coin</button><button class="${form.fork === 'choose' ? '' : 'alt'}" data-act="forkrule" data-arg="choose">👆 I choose</button></div></div>
+        <details><summary class="muted">More options: ${describe()}</summary>
+          <div class="stack tight" style="margin-top:8px">
+            <label>How do you play?
+              <select data-field="mode">
+                <option value="coop" ${form.mode === 'coop' ? 'selected' : ''}>Together (one shared pile of tokens)</option>
+                <option value="versus" ${form.mode === 'versus' ? 'selected' : ''}>Against each other (own tokens)</option>
+              </select></label>
+            <label>Token goal <span class="hint">0 means no goal</span>
+              <input type="number" min="0" max="50" data-field="goal" value="${form.goal}"></label>
+            <label>Time limit in minutes <span class="hint">0 means no limit; when time is up, most tokens wins</span>
+              <input type="number" min="0" max="600" data-field="minutes" value="${form.minutes}"></label>
+            <label>Start at
+              <select data-field="start">${opts}</select></label>
+          </div></details>
         <button data-act="start">Start the game</button>
       </section>`;
   }
 
   // ---------- Game ----------
-  function scoreboard(s) {
-    const { players, mode, goal } = s.settings;
-    if (mode === 'coop') {
-      return `<div class="score"><div class="on"><span class="muted">Team tokens</span><b>${G.total(s)}${goal ? ' / ' + goal : ''}</b></div></div>`;
-    }
-    return `<div class="score">${players.map((p, i) => `<div class="${i === s.player && s.phase !== 'over' ? 'on' : ''}"><span class="muted">${esc(p)}</span><b>${s.tokens[i]}${goal ? ' / ' + goal : ''}</b></div>`).join('')}</div>`;
+  function topbar(s) {
+    const { players, mode, goal } = s.settings, g = goal ? '/' + goal : '';
+    const scores = mode === 'coop'
+      ? `<div class="pl on"><span>Team</span><b>${G.total(s)}${g}</b></div>`
+      : players.map((p, i) => `<div class="pl ${i === s.player && s.phase !== 'over' ? 'on' : ''}"><span>${esc(p)}</span><b>${s.tokens[i]}${g}</b></div>`).join('');
+    const clockChip = s.endsAt && s.phase !== 'over' ? '<div class="pl"><span>⏱</span><b class="clock" id="game-clock"></b></div>' : '';
+    const stamps = s.stamps.length ? `<div class="pl" title="Stations stamped"><span>🚉</span><b>${s.stamps.length}</b></div>` : '';
+    return `<div class="topbar"><div class="scores">${scores}${stamps}${clockChip}</div><button class="alt small" data-act="newGame" aria-label="End game">✕</button></div>`;
   }
 
-  function summary(s) {
-    const m = s.lastMove;
-    if (!m) return '';
-    const forks = m.forks.map((f) => `<li>${f.how === 'wheel' ? 'Wheel spin' : f.how === 'coin' ? (f.before || f.options.length === 2 ? 'Coin flip' : 'Random pick') : 'Chose'} at <b>${esc(f.at)}</b>: ${esc(f.picked)}</li>`).join('');
-    return `<p class="path muted">${esc(s.settings.players[m.player])} rolled ${dieFace(m.roll)} (${m.roll}): ${m.path.map(esc).join(' → ')}</p>${forks ? `<ol class="log">${forks}</ol>` : ''}`;
-  }
+  const where = (s) => `<div class="where">📍 <b>${esc(s.pos)}</b> ${chips(G.lines[s.pos])}</div>`;
+  const stops = (n) => `${n} stop${n === 1 ? '' : 's'}`;
+  const lineButtons = (s, opts, act, label) => `<div class="choices ${opts.length > 2 ? 'two' : ''}">${opts.map((o, i) => `<button class="alt" data-act="${act}" data-arg="${esc(o)}">${label ? label(i) : ''}${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
 
   const deckCount = (s) => {
     const n = s.draw.length;
-    return n ? `${n} card${n === 1 ? '' : 's'} in the deck` : `The deck is empty, so the used cards will be shuffled back in`;
+    return n ? `${n} card${n === 1 ? '' : 's'} in the deck. Tap the deck or press Draw.` : 'The deck is empty, so the used cards will be shuffled back in.';
   };
 
   function cardFront(c, s) {
@@ -94,102 +96,107 @@
       <div class="deck3d" id="deck3d" data-act="draw" role="button" tabindex="0" aria-label="Deck of challenge cards. Tap to draw the top card.">
         ${Array.from({ length: layers }, (_, i) => `<div class="dcard cback" style="transform:translateZ(${(i * 1.8).toFixed(1)}px)">${i === layers - 1 ? '<span class="cb-icon">🚆</span>' : ''}</div>`).join('')}
       </div>`;
-    return `<div class="cardstage" id="cardstage">${deck}
-      <div class="flipper ${c ? 'revealed' : ''}" id="flipper"><div class="cface cback"><span class="cb-icon big">🚆</span></div><div class="cface cfront" id="cfront">${c ? cardFront(c, s) : ''}</div></div></div>`;
+    return `<div class="viz" data-design="380"><div class="cardstage" id="cardstage">${deck}
+      <div class="flipper ${c ? 'revealed' : ''}" id="flipper"><div class="cface cback"><span class="cb-icon big">🚆</span></div><div class="cface cfront" id="cfront">${c ? cardFront(c, s) : ''}</div></div></div></div>`;
   }
 
   function challengeControls(s) {
     const c = G.cardById(s.card);
-    const name = esc(s.settings.players[s.player]);
     const timer = c.minutes
-      ? (s.timerEndsAt ? `<p class="clock" style="font-size:1.6rem;text-align:center" id="chal-clock"></p>`
+      ? (s.timerEndsAt ? '<p class="clock bigclock" id="chal-clock"></p>'
         : `<button class="alt" data-act="startTimer">Start ${c.minutes}-minute timer</button>`)
       : '';
-    return `<p class="muted">${name}'s challenge, at ${esc(s.pos)}</p>${timer}
-      ${s.timeUp ? '<p><b>Time is up!</b> Finish this challenge and the game ends.</p>' : ''}
+    return `${timer}${s.timeUp ? '<p><b>Time is up!</b> Finish this challenge and the game ends.</p>' : ''}
       <div class="row"><button class="ok" data-act="done">We did it! +1 token</button><button class="bad" data-act="skip">Skip</button></div>`;
   }
 
   const WHEEL = ['#d9482b', '#e0a100', '#1f9d55', '#3a74c9'];
 
-  function renderDirection(s, name, here) {
+  function renderDirection(s, name) {
     const opts = G.forkOptions(s);
-    const head = `<h2>${name}, which way?</h2><p>You are at ${here}</p><p>Pick a direction before you roll.</p>`;
+    const head = `<header><h2>${name}, which way?</h2>${where(s)}</header>`;
     const way = (o) => `${esc(o)} ${chips(G.linesBetween(s.pos, o))}`;
-    if (s.settings.fork !== 'coin') {
-      return head + `<div class="stack">${opts.map((o) => `<button class="alt" data-act="heading" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
-    }
+    if (s.settings.fork !== 'coin') return head + lineButtons(s, opts, 'heading');
     if (opts.length === 2) {
       const table = opts.map((o, i) => `<li><b>${i === 0 ? 'Heads 🍁' : 'Tails 🚆'}</b> → ${way(o)}</li>`).join('');
       return head + `<ul class="map">${table}</ul>
-        <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
+        <div class="viz" data-design="310"><div class="stage"><div class="shadow" id="shadow"></div>
           <div class="coin-wrap" id="coin-wrap"><div class="cam"><div class="coin" id="coin" role="button" tabindex="0" aria-label="Coin. Press and hold to shake it, let go to flip it.">
             ${[-2, -1, 0, 1, 2].map((z) => `<div class="edge" style="transform:translateZ(${z}px)"></div>`).join('')}
-            <div class="side heads">🍁</div><div class="side tails">🚆</div></div></div></div></div>
-        <p class="muted hint" id="hint">Press and hold the coin, then let go to flip it.</p>
-        <div id="coinresult" class="stack" aria-live="polite"></div>
-        <details id="physical"><summary class="muted">Flipped a real coin instead?</summary>
-          <div class="row" style="margin-top:6px"><button class="alt" data-act="physicalCoin" data-arg="1">Heads 🍁</button><button class="alt" data-act="physicalCoin" data-arg="0">Tails 🚆</button></div></details>`;
+            <div class="side heads">🍁</div><div class="side tails">🚆</div></div></div></div></div></div>
+        <footer class="sf" id="coinresult" aria-live="polite"><p class="muted hint" id="hint">Press and hold the coin, then let go to flip it.</p>
+          <details id="physical"><summary class="muted">Flipped a real coin instead?</summary>
+            <div class="row" style="margin-top:6px"><button class="alt" data-act="physicalCoin" data-arg="1">Heads 🍁</button><button class="alt" data-act="physicalCoin" data-arg="0">Tails 🚆</button></div></details></footer>`;
     }
     // three or four ways: a wheel with one equal, numbered, coloured slice per way
     const n = opts.length, S = 360 / n;
     const grad = opts.map((_, i) => `${WHEEL[i]} ${i * S}deg ${(i + 1) * S}deg`).join(', ');
     const labels = opts.map((_, i) => `<span class="lab" style="transform:rotate(${(i + 0.5) * S}deg) translateY(-78px) rotate(${-(i + 0.5) * S}deg)">${i + 1}</span>`).join('');
     const table = opts.map((o, i) => `<li><span class="dot" style="background:${WHEEL[i]}">${i + 1}</span> ${way(o)}</li>`).join('');
-    return head + `<ul class="map">${table}</ul>
-      <div class="wheelbox" id="wheelbox"><div class="pointer"></div>
-        <div class="wheel" id="wheel" role="button" tabindex="0" aria-label="Wheel. Press and hold to wind it up, let go to spin." style="background:conic-gradient(${grad})">${labels}<span class="hub"></span></div></div>
-      <p class="muted hint" id="hint">Press and hold the wheel, then let go to spin it.</p>
-      <div id="coinresult" class="stack" aria-live="polite"></div>
-      <details id="physical"><summary class="muted">Chose another way, or used a real spinner?</summary>
-        <div class="stack" style="margin-top:6px">${opts.map((o, i) => `<button class="alt" data-act="heading" data-arg="${esc(o)}">${i + 1}. ${esc(o)}</button>`).join('')}</div></details>`;
+    return head + `<ul class="map two">${table}</ul>
+      <div class="viz" data-design="290"><div class="wheelbox" id="wheelbox"><div class="pointer"></div>
+        <div class="wheel" id="wheel" role="button" tabindex="0" aria-label="Wheel. Press and hold to wind it up, let go to spin." style="background:conic-gradient(${grad})">${labels}<span class="hub"></span></div></div></div>
+      <footer class="sf" id="coinresult" aria-live="polite"><p class="muted hint" id="hint">Press and hold the wheel, then let go to spin it.</p>
+        <details id="physical"><summary class="muted">Chose another way, or used a real spinner?</summary>
+          <div class="stack tight" style="margin-top:6px">${opts.map((o, i) => `<button class="alt" data-act="heading" data-arg="${esc(o)}">${i + 1}. ${esc(o)}</button>`).join('')}</div></details></footer>`;
   }
 
   function renderGame(s) {
     const name = esc(s.settings.players[s.player]);
-    const here = `<b>${esc(s.pos)}</b><br>${chips(G.lines[s.pos])}`;
     let body = '';
     if (s.phase === 'roll' && G.needsDirection(s)) {
-      body = renderDirection(s, name, here);
+      body = renderDirection(s, name);
     } else if (s.phase === 'roll') {
       const face = (n) => `<div class="face f${n}" data-n="${n}">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((c) => `<i class="${PIPS[n].includes(c) ? 'pip' : ''}"></i>`).join('')}</div>`;
       const next = s.heading || G.forkOptions(s)[0];
-      body = `<h2>${name}, roll the die!</h2><p>You are at ${here}</p><p>Heading toward <b>${esc(next)}</b></p>${summary(s)}
-        <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
-          <div class="die-wrap" id="die-wrap"><div class="cam"><div class="die" id="die" role="button" tabindex="0" aria-label="Die. Press and hold to shake it, let go to throw it.">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div></div></div>
-        <p class="muted hint" id="hint">Press and hold the die, then let go to throw it.</p>
-        <div id="rollnum" class="rollnum" aria-live="polite"></div>
-        <div id="outcome" class="stack"></div>
-        <details id="physical"><summary class="muted">Rolled a real die instead?</summary>
-          <div class="dice">${[1, 2, 3, 4, 5, 6].map((n) => `<button class="alt" data-act="physical" data-arg="${n}" aria-label="${n}">${dieFace(n)}</button>`).join('')}</div></details>`;
+      body = `<header><h2>${name}, roll the die!</h2>${where(s)}<div class="where">➡️ Heading toward <b>${esc(next)}</b></div></header>
+        <div class="viz" data-design="310"><div class="stage"><div class="shadow" id="shadow"></div>
+          <div class="die-wrap" id="die-wrap"><div class="cam"><div class="die" id="die" role="button" tabindex="0" aria-label="Die. Press and hold to shake it, let go to throw it.">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div></div></div></div>
+        <footer class="sf tall">
+          <p class="muted hint" id="hint">Press and hold the die, then let go to throw it.</p>
+          <details id="physical"><summary class="muted">Rolled a real die instead?</summary>
+            <div class="dice">${[1, 2, 3, 4, 5, 6].map((n) => `<button class="alt" data-act="physical" data-arg="${n}" aria-label="${n}">${dieFace(n)}</button>`).join('')}</div></details>
+          <div id="rollnum" class="rollnum" aria-live="polite"></div>
+          <div id="outcome" class="stack tight"></div></footer>`;
     } else if (s.phase === 'fork') {
-      body = `<h2>Fork at ${esc(s.pos)}!</h2><p>${name} picks the way. ${s.remaining} stop${s.remaining === 1 ? '' : 's'} left.</p>
-        <div class="stack">${s.forkOptions.map((o) => `<button class="alt" data-act="fork" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
+      body = `<header><h2>Fork at ${esc(s.pos)}!</h2><div class="where">${name} picks the way. ${stops(s.remaining)} left.</div></header>${lineButtons(s, s.forkOptions, 'fork')}`;
     } else if (s.phase === 'arrived') {
-      body = `<h2>You arrived at ${esc(s.pos)}!</h2><p>${chips(G.lines[s.pos])}</p>${summary(s)}
+      body = `<header><h2>You arrived at ${esc(s.pos)}!</h2><div class="where">${chips(G.lines[s.pos])}</div></header>
         ${renderCardStage(s)}
-        <p class="muted hint" id="deckhint">${deckCount(s)}. Tap the deck or press Draw.</p>
-        <div class="row"><button class="alt" data-act="shuffle" id="shuffle-btn">🔀 Shuffle</button><button data-act="draw" id="draw-btn">Draw a card</button></div>
-        <div id="challenge-controls" class="stack"></div>`;
+        <footer class="sf mid" id="challenge-controls"><p class="muted hint" id="deckhint">${deckCount(s)}</p>
+          <div class="row"><button class="alt" data-act="shuffle" id="shuffle-btn">🔀 Shuffle</button><button data-act="draw" id="draw-btn">Draw a card</button></div></footer>`;
     } else if (s.phase === 'challenge') {
-      body = `<h2>${name}'s challenge</h2>${renderCardStage(s)}<div id="challenge-controls" class="stack">${challengeControls(s)}</div>`;
+      body = `<header><h2>${name}'s challenge</h2>${where(s)}</header>${renderCardStage(s)}<footer class="sf mid" id="challenge-controls">${challengeControls(s)}</footer>`;
     } else if (s.phase === 'over') {
       const r = s.result;
       const msg = r.mode === 'coop'
         ? (r.won ? `🎉 You did it together with ${r.score} tokens!` : `Time is up. Your team collected ${r.score} token${r.score === 1 ? '' : 's'}.`)
         : (r.winners.length === 1 ? `🎉 ${esc(r.winners[0])} wins with ${r.score} token${r.score === 1 ? '' : 's'}!` : `It is a tie between ${r.winners.map(esc).join(' and ')} (${r.score} each).`);
-      body = `<h2>Game over</h2><p style="font-size:1.2rem">${msg}</p><button data-act="newGame">Play again</button>`;
+      body = `<header><h2>Game over</h2></header><div class="overmsg"><p>${msg}</p><p class="muted">${s.stamps.length} station${s.stamps.length === 1 ? '' : 's'} stamped</p></div><button data-act="newGame">Play again</button>`;
     }
-    const clockLine = s.endsAt && s.phase !== 'over' ? `<p class="muted">Time left: <span class="clock" id="game-clock"></span></p>` : '';
-    return `<h1>Skytrain</h1>${scoreboard(s)}${clockLine}
-      <section class="card stack">${body}</section>
-      ${s.stamps.length ? `<section class="card"><h3>Stations stamped (${s.stamps.length})</h3><div class="stamps">${s.stamps.map((x) => `<span>${esc(x)}</span>`).join('')}</div></section>` : ''}
-      ${s.phase === 'over' ? '' : '<button class="alt small" data-act="newGame">End game / new game</button>'}`;
+    return `${topbar(s)}<section class="card screen">${body}</section>`;
   }
+
+  // Scale each 3D area so it fits the room left on the screen.
+  let resizer = null;
+  function fit() {
+    document.querySelectorAll('.viz').forEach((v) => {
+      const k = Math.max(0.45, Math.min(1, v.clientHeight / (+v.dataset.design || 300)));
+      v.style.setProperty('--k', k.toFixed(3));
+    });
+  }
+  window.addEventListener('resize', fit);
 
   function render() {
     dieToken++;
+    app.className = state ? 'game' : 'setup';
     app.innerHTML = state ? renderGame(state) : renderSetup();
+    fit();
+    if (window.ResizeObserver) {
+      if (resizer) resizer.disconnect();
+      resizer = new ResizeObserver(fit);
+      document.querySelectorAll('.viz').forEach((v) => resizer.observe(v));
+    }
     if (state && state.phase === 'roll') (G.needsDirection(state) ? (G.forkOptions(state).length === 2 ? setupCoin : setupWheel) : setupDie)();
     tick();
   }
@@ -219,14 +226,11 @@
     if (!box || !state) return;
     const s = state;
     if (s.phase === 'fork') {
-      box.innerHTML = `<h3>Fork at ${esc(s.pos)}!</h3><p>${esc(s.settings.players[s.player])} picks the way. ${s.remaining} stop${s.remaining === 1 ? '' : 's'} left.</p>
-        ${s.forkOptions.map((o) => `<button class="alt" data-act="fork" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}`;
+      box.innerHTML = `<div class="where"><b>Fork at ${esc(s.pos)}!</b> ${esc(s.settings.players[s.player])} picks the way. ${stops(s.remaining)} left.</div>${lineButtons(s, s.forkOptions, 'fork')}`;
     } else {
-      box.innerHTML = `<div class="dest"><span class="muted">You are riding to</span><div class="big">🚉</div><h3>${esc(s.pos)}</h3>${chips(G.lines[s.pos])}</div>${summary(s)}
-        <button data-act="toDeck">Go to the deck →</button>`;
+      box.innerHTML = `<div class="dest"><span class="muted">Riding to</span> <h3>${esc(s.pos)}</h3> ${chips(G.lines[s.pos])}</div><button data-act="toDeck">Go to the deck →</button>`;
     }
     box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
-    box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
   }
 
   // Press and hold to spin, let go to throw it up, watch it land.
@@ -334,10 +338,9 @@
   function showDirectionResult(label, picked) {
     const box = document.getElementById('coinresult');
     if (!box) return;
-    box.innerHTML = `<div class="dest"><h3>${label}</h3><span class="muted">Heading toward</span><h3>${esc(picked)}</h3>${chips(G.linesBetween(state.pos, picked))}</div>
+    box.innerHTML = `<div class="dest"><b>${label}</b> <span class="muted">Heading toward</span> <h3>${esc(picked)}</h3> ${chips(G.linesBetween(state.pos, picked))}</div>
       <button data-act="continue">Now roll the die →</button>`;
     box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
-    box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
   }
 
   function setupCoin() {
@@ -443,7 +446,6 @@
     document.getElementById('cfront').innerHTML = cardFront(c, state);
     document.getElementById('shuffle-btn').disabled = true;
     document.getElementById('draw-btn').disabled = true;
-    document.getElementById('deckhint').textContent = '';
 
     const done = () => {
       deckBusy = false;
@@ -452,12 +454,10 @@
       const deck = document.getElementById('deck3d');
       if (deck) deck.style.display = 'none';
       const shadow = document.querySelector('.deckshadow'); if (shadow) shadow.style.display = 'none';
+      document.querySelector('.screen h2').textContent = state.settings.players[state.player] + "'s challenge";
       const box = document.getElementById('challenge-controls');
       box.innerHTML = challengeControls(state);
       box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
-      box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
-      document.querySelector('.card h2').textContent = state.settings.players[state.player] + "'s challenge";
-      ['shuffle-btn', 'draw-btn'].forEach((id) => { const b = document.getElementById(id); if (b) b.parentNode.style.display = 'none'; });
     };
 
     if (reduced()) { done(); return; }
@@ -487,6 +487,7 @@
     const arg = el.dataset.arg;
     switch (el.dataset.act) {
       case 'preset': Object.assign(form, PRESETS[arg]); delete form.label; save(FORM_KEY, form); return render();
+      case 'forkrule': form.fork = arg; save(FORM_KEY, form); return render();
       case 'addPlayer': form.players.push('Player ' + (form.players.length + 1)); save(FORM_KEY, form); return render();
       case 'removePlayer': form.players.splice(+arg, 1); save(FORM_KEY, form); return render();
       case 'start': {
