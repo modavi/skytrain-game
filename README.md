@@ -4,7 +4,7 @@ A small online card game for the family. The site is hosted on Azure Static Web 
 
 ## Layout
 
-- `site/` - the game: `index.html`, `style.css`, and the scripts: `data.js` (stations and challenge cards), `game.js` (the rules), `ui.js` (the screens), `map.js` (our schematic map layout) and `mapview.js` (the map screen and train ride).
+- `site/` - the game: `index.html`, `style.css`, and the scripts: `data.js` (stations and challenge cards), `game.js` (the rules), `ui.js` (the screens), `map-art.js`, `map-data.js`, `map.js` and `mapview.js` (the map, see below).
 - `tests/` - tests for the rules and the map. Run with `node --test tests/*.test.js`.
 - `.github/workflows/deploy.yml` - GitHub Action that publishes `site/` to Azure.
 
@@ -26,7 +26,23 @@ The challenge cards in `site/data.js` are placeholders; edit them there. The gam
 
 ## The map
 
-`site/map.js` is our own simple drawing of the SkyTrain network (straight lines and 45 degree bends), based on the real station order. It is not TransLink's map artwork. The tests check that every station is there and that its track connections match the game rules exactly. The 🗺 button opens it (drag to move, pinch or +/- to zoom), and "Ride there" plays the train's trip after each roll.
+The map screen shows TransLink's official [SkyTrain Network Map](https://www.translink.ca/schedules-and-maps/transit-system-maps), used with TransLink's permission, with the game drawn on top: the train, the last ride, and gold rings on stamped stations. The 🗺 button opens it (drag to move, pinch or +/- to zoom), and "Ride there" plays the train's trip after each roll.
+
+- `site/map-art.js` is the map artwork (vector, from TransLink's PDF).
+- `site/map-data.js` holds each station's position on the artwork and the exact track between neighbouring stations. It is generated, not written by hand.
+- `site/map.js` and `site/mapview.js` use that data to draw the map screen and the ride.
+- The tests check that the map has every game station, that its track connections match the game rules exactly, and that every stretch of track starts and ends at its stations.
+
+To update the map when TransLink publishes a new one (needs `poppler-utils` and Python 3):
+
+```
+pdftocairo -svg skytrain-network-map.pdf map.svg
+pdftotext -bbox skytrain-network-map.pdf words.html
+node -e "const G=require('./site/game.js');require('fs').writeFileSync('game-adj.json',JSON.stringify({adj:G.adj,lines:G.lines}))"
+python3 tools/build_translink_map.py map.svg words.html game-adj.json site
+```
+
+The script cross-checks every station name against the label text in the PDF and stops if anything doesn't line up.
 
 ## Later
 
