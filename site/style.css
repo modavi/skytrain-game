@@ -121,3 +121,12 @@ button.linkish { border:0; font-weight:500; font-size:.88rem; padding:4px 6px; c
 .mtrain { font-size:13px; }
 .credit { flex:0 0 auto; text-align:center; font-size:.72rem; color:var(--muted); }
 @media (prefers-reduced-motion: reduce) { .pulse { animation:none; } }
+
+/* ---- Choices on the map ---- */
+.where { display:flex; flex-wrap:wrap; align-items:center; gap:2px 6px; }
+.where .mapbtn { margin-left:auto; padding:2px 9px; font-size:.95rem; }
+.mapviz { overflow:hidden; border-radius:12px; border:1px solid var(--line); background:#eaf3fb; }
+.mapviz .mapsvg { width:100%; height:100%; display:block; }
+.mbadge { font-size:7.4px; font-weight:800; fill:#fff; font-family:system-ui, sans-serif; pointer-events:none; }
+.choices .dot { margin-right:2px; }
+.maptitle { white-space:nowrap; }

@@ -16,11 +16,13 @@ A small online card game for the family. The site is hosted on Azure Static Web 
 
 ## How the game works
 
-1. Set up: players, together or against each other, a token goal and/or a time limit, and how forks are decided (coin flip or the roller chooses).
-2. On your turn, roll the die (or tap the number on a real die) and ride that many stops on the real SkyTrain map (Expo, Millennium and Canada lines). The whole family rides one train.
-3. At a fork or transfer you flip a coin or choose, depending on the setting. At the end of a line the train turns around.
-4. When you stop, draw a challenge card. Finish it for a token, or skip it.
-5. The game ends when someone (or the team) reaches the goal, or when time runs out and the most tokens wins.
+1. Set up: players, together or against each other, a token goal and/or a time limit, and how choices are made (coin flip or the roller chooses).
+2. On your turn, roll the die (or tap the number on a real die) and ride that many stops on the real SkyTrain network (Expo, Millennium and Canada lines). The whole family rides one train.
+3. **The train stays on its line.** It goes straight on, turns around at the end of the line, and passes through transfer stations without switching.
+4. **Real forks.** The track really splits in two places: at Columbia (to Scott Road or to Sapperton) and at Bridgeport (to Richmond or to the airport). Riding out from New Westminster or Marine Drive you flip a coin or choose. No train runs straight from Sapperton to Scott Road, or from Richmond to the airport; you have to change trains by stopping at Columbia or Bridgeport.
+5. **Choosing your way out.** If your turn starts at a transfer station (Waterfront, Commercial-Broadway, Lougheed Town Centre, Production Way-University) or at Columbia or Bridgeport, you pick your direction and line before rolling: coin for two ways, wheel for three or four. The choices are shown as numbered arrows on the map. At the very first turn you pick either way along the line.
+6. When you stop, draw a challenge card. Finish it for a token, or skip it.
+7. The game ends when someone (or the team) reaches the goal, or when time runs out and the most tokens wins.
 
 The challenge cards in `site/data.js` are placeholders; edit them there. The game is saved in the browser on one device only; sharing it between phones is what the server version below is for.
 

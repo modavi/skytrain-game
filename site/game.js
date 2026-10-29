@@ -45,6 +45,7 @@
       settings,
       pos: settings.start,
       prev: null,
+      line: null, // the line the train is riding
       phase: 'roll', // roll -> moving/fork -> arrived -> challenge -> roll ... -> over
       player: 0,
       tokens: Object.fromEntries(settings.players.map((_, i) => [i, 0])),
@@ -63,9 +64,58 @@
   }
 
   // ---- Moving -----------------------------------------------------------
+  // A train stays on its line. It goes straight on, turns around at the end of the line, and only
+  // has a choice where the track really splits (Columbia and Bridgeport). To change line or
+  // direction you stop at a transfer station and choose your way out at the start of your next turn.
+  const LINE_ORDER = ['expo', 'millennium', 'canada'];
+  const lineAdj = {}; // line -> station -> neighbours along that line
+  for (const seg of D.SEGMENTS) {
+    const m = (lineAdj[seg.line] = lineAdj[seg.line] || {});
+    seg.stops.forEach((st, i) => {
+      m[st] = m[st] || [];
+      if (!i) return;
+      const p = seg.stops[i - 1];
+      m[p] = m[p] || [];
+      if (!m[st].includes(p)) m[st].push(p);
+      if (!m[p].includes(st)) m[p].push(st);
+    });
+  }
+  // Trains do not run straight from one arm of a split to the other.
+  const NO_THROUGH = { expo: { 'Columbia': [['Sapperton', 'Scott Road']] }, canada: { 'Bridgeport': [['Capstan', 'Templeton']] } };
+  // Where you choose your way out when you start a turn: the transfers between lines, and the two
+  // splits where you can change trains to the other branch.
+  const TURN_POINTS = new Set(['Waterfront', 'Commercial–Broadway', 'Lougheed Town Centre', 'Production Way–University', 'Columbia', 'Bridgeport']);
+
+  // Where a train on `line` that came from `prev` can go next. Empty at the end of the line.
+  function ahead(line, pos, prev) {
+    const banned = ((NO_THROUGH[line] || {})[pos] || []).filter((pr) => pr.includes(prev)).map((pr) => pr.find((x) => x !== prev));
+    return ((lineAdj[line] || {})[pos] || []).filter((n) => n !== prev && !banned.includes(n));
+  }
+
+  // While riding: the stations the train can reach next (it turns around at the end of the line).
   function forkOptions(s) {
-    const opts = adj[s.pos].filter((n) => n !== s.prev);
-    return opts.length ? opts : [s.prev]; // dead end: turn around
+    const c = ahead(s.line, s.pos, s.prev);
+    return c.length ? c : [s.prev];
+  }
+
+  // At the start of a turn: every way out as { to, line }.
+  function startOptions(s) {
+    if (s.prev && s.line && !TURN_POINTS.has(s.pos)) return forkOptions(s).map((to) => ({ to, line: s.line }));
+    const out = [];
+    for (const line of LINE_ORDER) if (lines[s.pos].includes(line)) for (const to of lineAdj[line][s.pos]) out.push({ to, line });
+    return out;
+  }
+
+  // The next few stations along a way out, for showing it on the map.
+  function lookAhead(from, opt, count = 3) {
+    const path = [from, opt.to];
+    let prev = from, pos = opt.to;
+    while (path.length <= count) {
+      const c = ahead(opt.line, pos, prev);
+      if (c.length !== 1) break;
+      prev = pos; pos = c[0]; path.push(pos);
+    }
+    return path;
   }
 
   function take(s, next) {
@@ -77,19 +127,22 @@
 
   function roll(rng = Math.random) { return 1 + Math.floor(rng() * 6); }
 
-  // Before rolling, a train with more than one way forward picks its direction.
-  const needsDirection = (s) => s.phase === 'roll' && !s.heading && forkOptions(s).length > 1;
+  // Before rolling, a train with more than one way out picks its direction.
+  const needsDirection = (s) => s.phase === 'roll' && !s.heading && startOptions(s).length > 1;
 
-  function setHeading(s, station, how = 'choice') {
-    if (!needsDirection(s) || !forkOptions(s).includes(station)) throw new Error('Not a valid direction');
-    s.heading = station;
+  const sameWay = (a, b) => a.to === b.to && a.line === b.line;
+
+  function setHeading(s, opt, how = 'choice') {
+    const found = needsDirection(s) && startOptions(s).find((o) => sameWay(o, opt));
+    if (!found) throw new Error('Not a valid direction');
+    s.heading = { to: found.to, line: found.line };
     s.headingHow = how;
     return s;
   }
 
   // A coin settles two ways: heads is the first, tails is the second.
   function flipCoin(s, heads) {
-    const opts = forkOptions(s);
+    const opts = startOptions(s);
     if (opts.length !== 2) throw new Error('A coin only settles two ways');
     setHeading(s, opts[heads ? 0 : 1], 'coin');
     return { picked: s.heading };
@@ -97,7 +150,7 @@
 
   // Three or four ways: one spin of a wheel, every way an equal slice.
   function spinWheel(s, rng = Math.random) {
-    const opts = forkOptions(s);
+    const opts = startOptions(s);
     const index = Math.floor(rng() * opts.length);
     setHeading(s, opts[index], 'wheel');
     return { index, picked: s.heading };
@@ -107,11 +160,13 @@
     s.remaining = n;
     s.lastMove = { player: s.player, roll: n, path: [s.pos], forks: [] };
     s.phase = 'moving';
-    if (s.heading) {
-      s.lastMove.forks.push({ at: s.pos, options: forkOptions(s), picked: s.heading, how: s.headingHow, before: true });
-      take(s, s.heading);
-      s.heading = null;
-    }
+    const opts = startOptions(s);
+    let way = s.heading, how = s.headingHow;
+    if (!way) { way = opts[opts.length > 1 ? Math.floor(rng() * opts.length) : 0]; how = 'coin'; }
+    if (opts.length > 1) s.lastMove.forks.push({ at: s.pos, options: opts.map((o) => o.to), picked: way.to, how, before: true });
+    s.line = way.line;
+    s.heading = null;
+    take(s, way.to);
     return continueMove(s, rng);
   }
 
@@ -207,6 +262,6 @@
     return s;
   }
 
-  return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, setHeading, flipCoin, spinWheel, roll, startMove, continueMove, chooseFork,
+  return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, startOptions, lookAhead, setHeading, flipCoin, spinWheel, roll, startMove, continueMove, chooseFork,
     drawCard, shuffleDeck, startChallengeTimer, resolveChallenge, checkTime, endGame, total, cardById };
 });

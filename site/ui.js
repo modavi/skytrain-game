@@ -1,6 +1,6 @@
 (function () {
   const G = SkytrainGame, D = SkytrainData;
-  const GAME_KEY = 'skytrain.game.v1', FORM_KEY = 'skytrain.form.v1';
+  const GAME_KEY = 'skytrain.game.v2', FORM_KEY = 'skytrain.form.v1';
   const app = document.getElementById('app');
 
   const load = (k) => { try { return JSON.parse(localStorage.getItem(k)); } catch (e) { return null; } };
@@ -81,7 +81,7 @@
 
   const where = (s) => `<div class="where">📍 <b>${esc(s.pos)}</b> ${chips(G.lines[s.pos])}</div>`;
   const stops = (n) => `${n} stop${n === 1 ? '' : 's'}`;
-  const lineButtons = (s, opts, act, label) => `<div class="choices ${opts.length > 2 ? 'two' : ''}">${opts.map((o, i) => `<button class="alt" data-act="${act}" data-arg="${esc(o)}">${label ? label(i) : ''}${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
+  const lineButtons = (s, opts, act) => `<div class="choices ${opts.length > 2 ? 'two' : ''}">${opts.map((o, i) => `<button class="alt" data-act="${act}" data-arg="${esc(o)}">${dotNum(i)} ${esc(o)}<br>${chips([s.line])}</button>`).join('')}</div>`;
 
   const deckCount = (s) => {
     const n = s.draw.length;
@@ -118,12 +118,30 @@
   }
 
   const WHEEL = ['#d9482b', '#e0a100', '#1f9d55', '#3a74c9'];
+  const dotNum = (i) => `<span class="dot" style="background:${WHEEL[i]}">${i + 1}</span>`;
+  const mapBtn = '<button class="alt small mapbtn" data-act="showChoices" aria-label="Show these ways on the map">🗺</button>';
+
+  // The ways you can go right now, as arrows for the map. Coin choices show the coin sides.
+  function mapOptions(s) {
+    const coin = s.phase === 'roll' && s.settings.fork === 'coin' && G.startOptions(s).length === 2;
+    if (s.phase === 'fork') {
+      return s.forkOptions.map((to, i) => ({ path: G.lookAhead(s.pos, { to, line: s.line }, 3), color: WHEEL[i], badge: String(i + 1), text: `${esc(to)} ${chips([s.line])}` }));
+    }
+    return G.startOptions(s).map((o, i) => ({
+      path: G.lookAhead(s.pos, o, 3), color: coin ? WHEEL[i * 3] : WHEEL[i], badge: coin ? ['🍁', '🚆'][i] : String(i + 1),
+      text: `${coin ? ['Heads', 'Tails'][i] + ' → ' : ''}${esc(o.to)} ${chips([o.line])}`,
+    }));
+  }
 
   function renderDirection(s, name) {
-    const opts = G.forkOptions(s);
-    const head = `<header><h2>${name}, which way?</h2>${where(s)}</header>`;
-    const way = (o) => `${esc(o)} ${chips(G.linesBetween(s.pos, o))}`;
-    if (s.settings.fork !== 'coin') return head + lineButtons(s, opts, 'heading');
+    const opts = G.startOptions(s);
+    const head = `<header><h2>${name}, which way?</h2><div class="where">📍 <b>${esc(s.pos)}</b> ${chips(G.lines[s.pos])} ${mapBtn}</div></header>`;
+    const way = (o) => `${esc(o.to)} ${chips([o.line])}`;
+    if (s.settings.fork !== 'coin') {
+      // choose it yourself: the ways are on the map, and the buttons match the numbered arrows
+      return head + `<div class="viz mapviz" id="choicemap"></div>
+        <div class="choices ${opts.length > 2 ? 'two' : ''}">${opts.map((o, i) => `<button class="alt" data-act="heading" data-arg="${i}">${dotNum(i)} ${esc(o.to)}<br>${chips([o.line])}</button>`).join('')}</div>`;
+    }
     if (opts.length === 2) {
       const table = opts.map((o, i) => `<li><b>${i === 0 ? 'Heads 🍁' : 'Tails 🚆'}</b> → ${way(o)}</li>`).join('');
       return head + `<ul class="map">${table}</ul>
@@ -139,13 +157,13 @@
     const n = opts.length, S = 360 / n;
     const grad = opts.map((_, i) => `${WHEEL[i]} ${i * S}deg ${(i + 1) * S}deg`).join(', ');
     const labels = opts.map((_, i) => `<span class="lab" style="transform:rotate(${(i + 0.5) * S}deg) translateY(-78px) rotate(${-(i + 0.5) * S}deg)">${i + 1}</span>`).join('');
-    const table = opts.map((o, i) => `<li><span class="dot" style="background:${WHEEL[i]}">${i + 1}</span> ${way(o)}</li>`).join('');
+    const table = opts.map((o, i) => `<li>${dotNum(i)} ${way(o)}</li>`).join('');
     return head + `<ul class="map two">${table}</ul>
       <div class="viz" data-design="290"><div class="wheelbox" id="wheelbox"><div class="pointer"></div>
         <div class="wheel" id="wheel" role="button" tabindex="0" aria-label="Wheel. Press and hold to wind it up, let go to spin." style="background:conic-gradient(${grad})">${labels}<span class="hub"></span></div></div></div>
       <footer class="sf" id="coinresult" aria-live="polite"><p class="muted hint" id="hint">Press and hold the wheel, then let go to spin it.</p>
         <details id="physical"><summary class="muted">Chose another way, or used a real spinner?</summary>
-          <div class="stack tight" style="margin-top:6px">${opts.map((o, i) => `<button class="alt" data-act="heading" data-arg="${esc(o)}">${i + 1}. ${esc(o)}</button>`).join('')}</div></details></footer>`;
+          <div class="stack tight" style="margin-top:6px">${opts.map((o, i) => `<button class="alt" data-act="heading" data-arg="${i}">${i + 1}. ${esc(o.to)} (${D.LINES[o.line].name})</button>`).join('')}</div></details></footer>`;
   }
 
   function renderGame(s) {
@@ -155,8 +173,8 @@
       body = renderDirection(s, name);
     } else if (s.phase === 'roll') {
       const face = (n) => `<div class="face f${n}" data-n="${n}">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((c) => `<i class="${PIPS[n].includes(c) ? 'pip' : ''}"></i>`).join('')}</div>`;
-      const next = s.heading || G.forkOptions(s)[0];
-      body = `<header><h2>${name}, roll the die!</h2>${where(s)}<div class="where">➡️ Heading toward <b>${esc(next)}</b></div></header>
+      const next = s.heading || G.startOptions(s)[0];
+      body = `<header><h2>${name}, roll the die!</h2>${where(s)}<div class="where">➡️ Heading toward <b>${esc(next.to)}</b> ${chips([next.line])}</div></header>
         <div class="viz" data-design="310"><div class="stage"><div class="shadow" id="shadow"></div>
           <div class="die-wrap" id="die-wrap"><div class="cam"><div class="die" id="die" role="button" tabindex="0" aria-label="Die. Press and hold to shake it, let go to throw it.">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div></div></div></div>
         <footer class="sf tall">
@@ -166,7 +184,7 @@
           <div id="rollnum" class="rollnum" aria-live="polite"></div>
           <div id="outcome" class="stack tight"></div></footer>`;
     } else if (s.phase === 'fork') {
-      body = `<header><h2>Fork at ${esc(s.pos)}!</h2><div class="where">${name} picks the way. ${stops(s.remaining)} left.</div></header>${lineButtons(s, s.forkOptions, 'fork')}`;
+      body = `<header><h2>Fork at ${esc(s.pos)}!</h2><div class="where">${name} picks the way. ${stops(s.remaining)} left. ${mapBtn}</div></header><div class="viz mapviz" id="choicemap"></div>${lineButtons(s, s.forkOptions, 'fork')}`;
     } else if (s.phase === 'arrived') {
       body = `<header><h2>You arrived at ${esc(s.pos)}!</h2><div class="where">${chips(G.lines[s.pos])}</div></header>
         ${renderCardStage(s)}
@@ -204,7 +222,9 @@
       resizer = new ResizeObserver(fit);
       document.querySelectorAll('.viz').forEach((v) => resizer.observe(v));
     }
-    if (state && state.phase === 'roll') (G.needsDirection(state) ? (G.forkOptions(state).length === 2 ? setupCoin : setupWheel) : setupDie)();
+    if (state && state.phase === 'roll') (G.needsDirection(state) ? (G.startOptions(state).length === 2 ? setupCoin : setupWheel) : setupDie)();
+    const choiceMap = document.getElementById('choicemap');
+    if (choiceMap && state) SkytrainMapView.mountChoices(choiceMap, state, mapOptions(state));
     tick();
   }
 
@@ -233,7 +253,7 @@
     if (!box || !state) return;
     const s = state;
     if (s.phase === 'fork') {
-      box.innerHTML = `<div class="where"><b>Fork at ${esc(s.pos)}!</b> ${esc(s.settings.players[s.player])} picks the way. ${stops(s.remaining)} left.</div>${lineButtons(s, s.forkOptions, 'fork')}`;
+      box.innerHTML = `<div class="where"><b>Fork at ${esc(s.pos)}!</b> ${esc(s.settings.players[s.player])} picks the way. ${stops(s.remaining)} left. ${mapBtn}</div>${lineButtons(s, s.forkOptions, 'fork')}`;
     } else {
       box.innerHTML = `<div class="dest"><span class="muted">Riding to</span> <h3>${esc(s.pos)}</h3> ${chips(G.lines[s.pos])}</div><div class="row"><button class="alt" data-act="toDeck">Skip the ride</button><button data-act="ride">🚆 Ride there →</button></div>`;
     }
@@ -345,7 +365,7 @@
   function showDirectionResult(label, picked) {
     const box = document.getElementById('coinresult');
     if (!box) return;
-    box.innerHTML = `<div class="dest"><b>${label}</b> <span class="muted">Heading toward</span> <h3>${esc(picked)}</h3> ${chips(G.linesBetween(state.pos, picked))}</div>
+    box.innerHTML = `<div class="dest"><b>${label}</b> <span class="muted">Heading toward</span> <h3>${esc(picked.to)}</h3> ${chips([picked.line])}</div>
       <button data-act="continue">Now roll the die →</button>`;
     box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
   }
@@ -372,7 +392,7 @@
     const hint = document.getElementById('hint');
     const token = dieToken, calm = reduced();
     const live = () => token === dieToken && el.isConnected;
-    const n = G.forkOptions(state).length, S = 360 / n;
+    const n = G.startOptions(state).length, S = 360 / n;
     let mode = 'idle', raf = 0, angle = 0, holdStart = 0, last = 0;
     const draw = () => { el.style.transform = `rotate(${angle}deg)`; };
 
@@ -505,7 +525,8 @@
         state = G.newGame({ players, mode: form.mode, goal: form.goal, minutes: form.minutes, fork: form.fork, start: form.start });
         return commit();
       }
-      case 'heading': G.setHeading(state, arg); return commit();
+      case 'heading': G.setHeading(state, G.startOptions(state)[+arg]); return commit();
+      case 'showChoices': return SkytrainMapView.open({ state, mode: 'choices', options: mapOptions(state) });
       case 'physicalCoin': {
         const r = G.flipCoin(state, arg === '1'); save(GAME_KEY, state);
         document.getElementById('physical').hidden = true;
