@@ -84,24 +84,23 @@
     if (!needsDirection(s) || !forkOptions(s).includes(station)) throw new Error('Not a valid direction');
     s.heading = station;
     s.headingHow = how;
-    s.flips = [];
     return s;
   }
 
-  // Tossing a coin to pick between 2 to 4 ways: one flip for two ways, two flips for three or four
-  // (heads, heads = 1st way; heads, tails = 2nd; tails, heads = 3rd; tails, tails = 4th).
-  // A combination with no matching way means start the flips again, so every way is equally likely.
-  const flipsNeeded = (n) => Math.ceil(Math.log2(n));
-
+  // A coin settles two ways: heads is the first, tails is the second.
   function flipCoin(s, heads) {
     const opts = forkOptions(s);
-    const flips = (s.flips || []).concat(heads);
-    if (flips.length < flipsNeeded(opts.length)) { s.flips = flips; return { done: false, flips }; }
-    s.flips = [];
-    const idx = flips.reduce((a, h) => a * 2 + (h ? 0 : 1), 0);
-    if (idx >= opts.length) return { done: false, again: true, flips };
-    setHeading(s, opts[idx], 'coin');
-    return { done: true, flips, picked: opts[idx] };
+    if (opts.length !== 2) throw new Error('A coin only settles two ways');
+    setHeading(s, opts[heads ? 0 : 1], 'coin');
+    return { picked: s.heading };
+  }
+
+  // Three or four ways: one spin of a wheel, every way an equal slice.
+  function spinWheel(s, rng = Math.random) {
+    const opts = forkOptions(s);
+    const index = Math.floor(rng() * opts.length);
+    setHeading(s, opts[index], 'wheel');
+    return { index, picked: s.heading };
   }
 
   function startMove(s, n, rng = Math.random) {
@@ -201,6 +200,6 @@
     return s;
   }
 
-  return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, setHeading, flipCoin, flipsNeeded, roll, startMove, continueMove, chooseFork,
+  return { adj, lines, stations, linesBetween, newGame, forkOptions, needsDirection, setHeading, flipCoin, spinWheel, roll, startMove, continueMove, chooseFork,
     drawCard, startChallengeTimer, resolveChallenge, checkTime, endGame, total, cardById };
 });

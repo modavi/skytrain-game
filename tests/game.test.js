@@ -119,30 +119,29 @@ test('direction: the chosen way is where the first stop goes', () => {
   assert.strictEqual(s.lastMove.forks[0].picked, 'Vancouver City Centre');
 });
 
-test('coin: one flip for two ways, heads is the first way', () => {
+test('coin: heads is the first way, tails the second', () => {
   const s = G.newGame(settings({ start: 'Waterfront' }));
   const opts = G.forkOptions(s);
-  const r = G.flipCoin(s, false);
-  assert.ok(r.done); assert.strictEqual(s.heading, opts[1]);
+  assert.strictEqual(G.flipCoin(s, false).picked, opts[1]);
+  assert.strictEqual(s.heading, opts[1]);
   const t = G.newGame(settings({ start: 'Waterfront' }));
   G.flipCoin(t, true); assert.strictEqual(t.heading, opts[0]);
 });
 
-test('coin: four ways take two flips and each way is equally likely', () => {
-  const mk = () => { const s = G.newGame(settings({ start: 'Main Street–Science World' })); s.pos = 'Commercial–Broadway'; s.prev = null; return s; };
-  assert.strictEqual(G.forkOptions(mk()).length, 4);
-  const seen = {};
-  for (const [a, b] of [[true, true], [true, false], [false, true], [false, false]]) {
-    const s = mk(); assert.ok(!G.flipCoin(s, a).done);
-    const r = G.flipCoin(s, b); assert.ok(r.done); seen[r.picked] = 1;
-  }
-  assert.strictEqual(Object.keys(seen).length, 4);
+test('coin: refuses to settle three or four ways', () => {
+  const s = G.newGame(settings()); s.pos = 'Commercial–Broadway'; s.prev = null;
+  assert.strictEqual(G.forkOptions(s).length, 4);
+  assert.throws(() => G.flipCoin(s, true));
 });
 
-test('coin: three ways, tails-tails means flip again', () => {
-  const s = G.newGame(settings()); s.pos = 'Commercial–Broadway'; s.prev = 'Main Street–Science World';
-  assert.strictEqual(G.forkOptions(s).length, 3);
-  G.flipCoin(s, false);
-  const r = G.flipCoin(s, false);
-  assert.ok(r.again && !r.done); assert.ok(!s.heading); assert.deepStrictEqual(s.flips, []);
+test('wheel: one spin settles three or four ways, each equally likely', () => {
+  for (const prev of [null, 'Main Street–Science World']) {
+    const n = prev ? 3 : 4, seen = new Set();
+    for (let i = 0; i < n; i++) {
+      const s = G.newGame(settings()); s.pos = 'Commercial–Broadway'; s.prev = prev;
+      const r = G.spinWheel(s, () => (i + 0.5) / n);
+      assert.strictEqual(r.index, i); assert.strictEqual(s.heading, r.picked); seen.add(r.picked);
+    }
+    assert.strictEqual(seen.size, n);
+  }
 });

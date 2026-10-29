@@ -70,11 +70,11 @@
   function summary(s) {
     const m = s.lastMove;
     if (!m) return '';
-    const forks = m.forks.map((f) => `<li>${f.how === 'coin' ? (f.before || f.options.length === 2 ? 'Coin flip' : 'Random pick') : 'Chose'} at <b>${esc(f.at)}</b>: ${esc(f.picked)}</li>`).join('');
+    const forks = m.forks.map((f) => `<li>${f.how === 'wheel' ? 'Wheel spin' : f.how === 'coin' ? (f.before || f.options.length === 2 ? 'Coin flip' : 'Random pick') : 'Chose'} at <b>${esc(f.at)}</b>: ${esc(f.picked)}</li>`).join('');
     return `<p class="path muted">${esc(s.settings.players[m.player])} rolled ${dieFace(m.roll)} (${m.roll}): ${m.path.map(esc).join(' → ')}</p>${forks ? `<ol class="log">${forks}</ol>` : ''}`;
   }
 
-  const HT = (heads) => (heads ? 'Heads 🍁' : 'Tails 🚆');
+  const WHEEL = ['#d9482b', '#e0a100', '#1f9d55', '#3a74c9'];
 
   function renderDirection(s, name, here) {
     const opts = G.forkOptions(s);
@@ -83,19 +83,30 @@
     if (s.settings.fork !== 'coin') {
       return head + `<div class="stack">${opts.map((o) => `<button class="alt" data-act="heading" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
     }
-    const need = G.flipsNeeded(opts.length);
-    const combos = need === 1 ? [[true], [false]] : [[true, true], [true, false], [false, true], [false, false]];
-    const table = combos.map((c, i) => `<li><b>${c.map((h) => (h ? 'Heads' : 'Tails')).join(', ')}</b> → ${i < opts.length ? way(opts[i]) : 'flip again'}</li>`).join('');
-    const so = (s.flips || []).length ? `So far: ${s.flips.map((h) => (h ? 'Heads' : 'Tails')).join(', ')}. Flip again!` : '';
+    if (opts.length === 2) {
+      const table = opts.map((o, i) => `<li><b>${i === 0 ? 'Heads 🍁' : 'Tails 🚆'}</b> → ${way(o)}</li>`).join('');
+      return head + `<ul class="map">${table}</ul>
+        <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
+          <div class="coin-wrap" id="coin-wrap"><div class="cam"><div class="coin" id="coin" role="button" tabindex="0" aria-label="Coin. Press and hold to shake it, let go to flip it.">
+            ${[-2, -1, 0, 1, 2].map((z) => `<div class="edge" style="transform:translateZ(${z}px)"></div>`).join('')}
+            <div class="side heads">🍁</div><div class="side tails">🚆</div></div></div></div></div>
+        <p class="muted hint" id="hint">Press and hold the coin, then let go to flip it.</p>
+        <div id="coinresult" class="stack" aria-live="polite"></div>
+        <details id="physical"><summary class="muted">Flipped a real coin instead?</summary>
+          <div class="row" style="margin-top:6px"><button class="alt" data-act="physicalCoin" data-arg="1">Heads 🍁</button><button class="alt" data-act="physicalCoin" data-arg="0">Tails 🚆</button></div></details>`;
+    }
+    // three or four ways: a wheel with one equal, numbered, coloured slice per way
+    const n = opts.length, S = 360 / n;
+    const grad = opts.map((_, i) => `${WHEEL[i]} ${i * S}deg ${(i + 1) * S}deg`).join(', ');
+    const labels = opts.map((_, i) => `<span class="lab" style="transform:rotate(${(i + 0.5) * S}deg) translateY(-78px) rotate(${-(i + 0.5) * S}deg)">${i + 1}</span>`).join('');
+    const table = opts.map((o, i) => `<li><span class="dot" style="background:${WHEEL[i]}">${i + 1}</span> ${way(o)}</li>`).join('');
     return head + `<ul class="map">${table}</ul>
-      <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
-        <div class="coin-wrap" id="coin-wrap"><div class="cam"><div class="coin" id="coin" role="button" tabindex="0" aria-label="Coin. Press and hold to shake it, let go to flip it.">
-          ${[-2, -1, 0, 1, 2].map((z) => `<div class="edge" style="transform:translateZ(${z}px)"></div>`).join('')}
-          <div class="side heads">🍁</div><div class="side tails">🚆</div></div></div></div></div>
-      <p class="muted hint" id="hint">${so || `Press and hold the coin${need > 1 ? ', flip it twice' : ''}. Let go to flip!`}</p>
+      <div class="wheelbox" id="wheelbox"><div class="pointer"></div>
+        <div class="wheel" id="wheel" role="button" tabindex="0" aria-label="Wheel. Press and hold to wind it up, let go to spin." style="background:conic-gradient(${grad})">${labels}<span class="hub"></span></div></div>
+      <p class="muted hint" id="hint">Press and hold the wheel, then let go to spin it.</p>
       <div id="coinresult" class="stack" aria-live="polite"></div>
-      <details id="physical"><summary class="muted">Flipped a real coin instead?</summary>
-        <div class="row" style="margin-top:6px"><button class="alt" data-act="physicalCoin" data-arg="1">Heads 🍁</button><button class="alt" data-act="physicalCoin" data-arg="0">Tails 🚆</button></div></details>`;
+      <details id="physical"><summary class="muted">Chose another way, or used a real spinner?</summary>
+        <div class="stack" style="margin-top:6px">${opts.map((o, i) => `<button class="alt" data-act="heading" data-arg="${esc(o)}">${i + 1}. ${esc(o)}</button>`).join('')}</div></details>`;
   }
 
   function renderGame(s) {
@@ -147,7 +158,7 @@
   function render() {
     dieToken++;
     app.innerHTML = state ? renderGame(state) : renderSetup();
-    if (state && state.phase === 'roll') (G.needsDirection(state) ? setupCoin : setupDie)();
+    if (state && state.phase === 'roll') (G.needsDirection(state) ? (G.forkOptions(state).length === 2 ? setupCoin : setupWheel) : setupDie)();
     tick();
   }
 
@@ -250,14 +261,19 @@
       })(t0);
     }
 
-    const api = { calm, live, rearm() { mode = 'idle'; hint.textContent = 'Press and hold, then let go to flip again.'; } };
+    const api = { calm, live };
+    bindHold(el, press, release);
+    return api;
+  }
+
+  // Press and hold with a finger, mouse or the space bar; letting go releases.
+  function bindHold(el, press, release) {
     el.addEventListener('pointerdown', (e) => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (x) {} press(); });
     el.addEventListener('pointerup', release);
     el.addEventListener('pointercancel', release);
     el.addEventListener('contextmenu', (e) => e.preventDefault());
     el.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(); } });
     el.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') release(); });
-    return api;
   }
 
   function setupDie() {
@@ -282,19 +298,12 @@
     });
   }
 
-  // Shows how a coin result played out, then waits for the player to carry on to the die.
-  function showCoinResult(r) {
+  // Shows how the direction was decided, then waits for the player to carry on to the die.
+  function showDirectionResult(label, picked) {
     const box = document.getElementById('coinresult');
     if (!box) return;
-    const said = r.flips.map((h) => (h ? 'Heads' : 'Tails')).join(', ');
-    if (r.done) {
-      box.innerHTML = `<div class="dest"><h3>${said}!</h3><span class="muted">Heading toward</span><h3>${esc(r.picked)}</h3>${chips(G.linesBetween(state.pos, r.picked))}</div>
-        <button data-act="continue">Now roll the die →</button>`;
-    } else if (r.again) {
-      box.innerHTML = `<p><b>${said}</b> doesn't match a direction. Flip again from the start!</p>`;
-    } else {
-      box.innerHTML = `<p><b>${said}.</b> Now flip again!</p>`;
-    }
+    box.innerHTML = `<div class="dest"><h3>${label}</h3><span class="muted">Heading toward</span><h3>${esc(picked)}</h3>${chips(G.linesBetween(state.pos, picked))}</div>
+      <button data-act="continue">Now roll the die →</button>`;
     box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
     box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
   }
@@ -306,16 +315,57 @@
         const heads = Math.random() < 0.5;
         const r = G.flipCoin(state, heads); save(GAME_KEY, state); // decided now, so a refresh cannot re-flip
         document.getElementById('physical').hidden = true;
-        return { result: r, angles: COIN_ROT[heads ? 'heads' : 'tails'] };
+        return { result: { label: heads ? 'Heads!' : 'Tails!', picked: r.picked }, angles: COIN_ROT[heads ? 'heads' : 'tails'] };
       },
       settled(r, api) {
-        setTimeout(() => {
-          if (!api.live()) return;
-          showCoinResult(r);
-          if (!r.done) { document.getElementById('physical').hidden = false; api.rearm(); }
-        }, api.calm ? 100 : 400);
+        setTimeout(() => { if (api.live()) showDirectionResult(r.label, r.picked); }, api.calm ? 100 : 400);
       },
     });
+  }
+
+  // Wind the wheel up while held, let go and it spins down onto a slice.
+  function setupWheel() {
+    const el = document.getElementById('wheel');
+    if (!el) return;
+    const hint = document.getElementById('hint');
+    const token = dieToken, calm = reduced();
+    const live = () => token === dieToken && el.isConnected;
+    const n = G.forkOptions(state).length, S = 360 / n;
+    let mode = 'idle', raf = 0, angle = 0, holdStart = 0, last = 0;
+    const draw = () => { el.style.transform = `rotate(${angle}deg)`; };
+
+    function hold(t) {
+      if (!live() || mode !== 'hold') return;
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      if (!calm) angle += (200 + 700 * Math.min(1, (t - holdStart) / 1500)) * dt;
+      draw(); raf = requestAnimationFrame(hold);
+    }
+    function press() {
+      if (mode !== 'idle') return;
+      mode = 'hold'; holdStart = last = performance.now();
+      hint.textContent = 'Let go to spin!';
+      raf = requestAnimationFrame(hold);
+    }
+    function release() {
+      if (mode !== 'hold') return;
+      mode = 'spin'; cancelAnimationFrame(raf);
+      const r = G.spinWheel(state); save(GAME_KEY, state); // decided now, so a refresh cannot re-spin
+      document.getElementById('physical').hidden = true;
+      hint.textContent = '';
+      // the pointer is at the top: put the middle of the chosen slice under it, a little off-centre like a real wheel
+      const centre = (r.index + 0.5) * S + (Math.random() - 0.5) * S * 0.6;
+      const start = angle, end = -centre + 360 * Math.ceil((start + (calm ? 0 : 1080) + centre) / 360);
+      const dur = calm ? 300 : 2800, t0 = performance.now();
+      (function step(now) {
+        if (!live()) return;
+        const p = Math.min(1, (now - t0) / dur);
+        angle = start + (end - start) * (1 - Math.pow(1 - p, 3));
+        draw();
+        if (p < 1) return requestAnimationFrame(step);
+        setTimeout(() => { if (live()) showDirectionResult(`Number ${r.index + 1}!`, r.picked); }, calm ? 100 : 400);
+      })(t0);
+    }
+    bindHold(el, press, release);
   }
 
   // ---------- Events ----------
@@ -344,7 +394,8 @@
       case 'heading': G.setHeading(state, arg); return commit();
       case 'physicalCoin': {
         const r = G.flipCoin(state, arg === '1'); save(GAME_KEY, state);
-        if (r.done) { showCoinResult(r); document.getElementById('physical').hidden = true; } else { showCoinResult(r); }
+        document.getElementById('physical').hidden = true;
+        showDirectionResult(arg === '1' ? 'Heads!' : 'Tails!', r.picked);
         return;
       }
       case 'continue': return render();
