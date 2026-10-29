@@ -8,6 +8,7 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const clock = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
   const chips = (ls) => ls.map((l) => `<span class="chip ${l}" style="background:${D.LINES[l].color}">${D.LINES[l].name}</span>`).join('');
+  const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
   const dieFace = (n) => String.fromCharCode(0x267F + n);
 
   const defaultForm = () => ({ players: ['Player 1', 'Player 2'], mode: 'coop', goal: 5, minutes: 0, fork: 'coin', start: 'Waterfront' });
@@ -78,10 +79,15 @@
     const here = `<b>${esc(s.pos)}</b><br>${chips(G.lines[s.pos])}`;
     let body = '';
     if (s.phase === 'roll') {
+      const face = (n) => `<div class="face f${n}" data-n="${n}">${[0, 1, 2, 3, 4, 5, 6, 7, 8].map((c) => `<i class="${PIPS[n].includes(c) ? 'pip' : ''}"></i>`).join('')}</div>`;
       body = `<h2>${name}, roll the die!</h2><p>You are at ${here}</p>${summary(s)}
-        <button data-act="roll">🎲 Roll the die</button>
-        <p class="muted">Rolled a real die instead? Tap what it shows:</p>
-        <div class="dice">${[1, 2, 3, 4, 5, 6].map((n) => `<button class="alt" data-act="physical" data-arg="${n}" aria-label="${n}">${dieFace(n)}</button>`).join('')}</div>`;
+        <div class="stage" id="stage"><div class="shadow" id="shadow"></div>
+          <div class="die-wrap" id="die-wrap"><div class="die" id="die" role="button" tabindex="0" aria-label="Die. Press and hold to shake it, let go to throw it.">${[1, 2, 3, 4, 5, 6].map(face).join('')}</div></div></div>
+        <p class="muted hint" id="hint">Press and hold the die, then let go to throw it.</p>
+        <div id="rollnum" class="rollnum" aria-live="polite"></div>
+        <div id="outcome" class="stack"></div>
+        <details id="physical"><summary class="muted">Rolled a real die instead?</summary>
+          <div class="dice">${[1, 2, 3, 4, 5, 6].map((n) => `<button class="alt" data-act="physical" data-arg="${n}" aria-label="${n}">${dieFace(n)}</button>`).join('')}</div></details>`;
     } else if (s.phase === 'fork') {
       body = `<h2>Fork at ${esc(s.pos)}!</h2><p>${name} picks the way. ${s.remaining} stop${s.remaining === 1 ? '' : 's'} left.</p>
         <div class="stack">${s.forkOptions.map((o) => `<button class="alt" data-act="fork" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}</div>`;
@@ -112,7 +118,9 @@
   }
 
   function render() {
+    dieToken++;
     app.innerHTML = state ? renderGame(state) : renderSetup();
+    if (state && state.phase === 'roll') setupDie();
     tick();
   }
 
@@ -127,6 +135,111 @@
     if (c && state.timerEndsAt) { const left = state.timerEndsAt - Date.now(); c.textContent = left > 0 ? clock(left) : "Time's up!"; }
   }
   setInterval(tick, 1000);
+
+
+  // ---------- The die ----------
+  // Rotation (x, y) that brings each face to the front.
+  const FACE_ROT = { 1: [0, 0], 2: [0, -90], 3: [-90, 0], 4: [90, 0], 5: [0, 90], 6: [0, 180] };
+  const reduced = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let dieToken = 0;
+
+  function showOutcome() {
+    const box = document.getElementById('outcome');
+    if (!box || !state) return;
+    const s = state;
+    if (s.phase === 'fork') {
+      box.innerHTML = `<h3>Fork at ${esc(s.pos)}!</h3><p>${esc(s.settings.players[s.player])} picks the way. ${s.remaining} stop${s.remaining === 1 ? '' : 's'} left.</p>
+        ${s.forkOptions.map((o) => `<button class="alt" data-act="fork" data-arg="${esc(o)}">${esc(o)}<br>${chips(G.linesBetween(s.pos, o))}</button>`).join('')}`;
+    } else {
+      box.innerHTML = `<div class="dest"><span class="muted">You are riding to</span><div class="big">🚉</div><h3>${esc(s.pos)}</h3>${chips(G.lines[s.pos])}</div>${summary(s)}
+        <button data-act="draw">Draw a challenge card</button>`;
+    }
+    box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+    box.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'nearest' });
+  }
+
+  function setupDie() {
+    const el = document.getElementById('die');
+    if (!el) return;
+    const wrap = document.getElementById('die-wrap'), shadow = document.getElementById('shadow');
+    const hint = document.getElementById('hint'), num = document.getElementById('rollnum');
+    const token = dieToken, calm = reduced();
+    const live = () => token === dieToken && el.isConnected;
+    let mode = 'idle', raf = 0, holdStart = 0, last = 0;
+    let rx = -25, ry = 35, rz = 0;
+
+    function draw(h, scale) {
+      wrap.style.transform = `translateY(${-h}px) scale(${scale})`;
+      el.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg) rotateZ(${rz}deg)`;
+      const f = Math.max(0, 1 - h / 260);
+      shadow.style.transform = `translateX(-50%) scale(${0.45 + 0.55 * f})`;
+      shadow.style.opacity = 0.15 + 0.35 * f;
+    }
+    draw(0, 1);
+
+    function hold(t) {
+      if (!live() || mode !== 'hold') return;
+      const dt = Math.min(0.05, (t - last) / 1000); last = t;
+      const speed = 300 + 700 * Math.min(1, (t - holdStart) / 1500);
+      if (!calm) { rx += speed * dt; ry += speed * dt * 1.3; rz += speed * dt * 0.5; }
+      draw(14 + (calm ? 0 : Math.sin(t / 40) * 3), 1.12);
+      raf = requestAnimationFrame(hold);
+    }
+
+    function press() {
+      if (mode !== 'idle') return;
+      mode = 'hold'; holdStart = last = performance.now();
+      hint.textContent = 'Let go to throw!';
+      raf = requestAnimationFrame(hold);
+    }
+
+    function release() {
+      if (mode !== 'hold') return;
+      mode = 'throw'; cancelAnimationFrame(raf);
+      const n = G.roll();
+      G.startMove(state, n); save(GAME_KEY, state); // decided now, so a refresh cannot re-roll
+      document.getElementById('physical').hidden = true;
+      hint.textContent = '';
+      const [bx, by] = FACE_ROT[n];
+      const ahead = (cur, base) => base + 360 * Math.ceil((cur + 540 - base) / 360); // at least 1.5 more turns, ends exactly on the face
+      const sx = rx, sy = ry, sz = rz, tx = ahead(sx, bx), ty = ahead(sy, by), tz = ahead(sz, 0);
+      const H = calm ? 0 : 170, T = calm ? 250 : 900, B1 = calm ? 0 : 260, B2 = calm ? 0 : 140, rotDur = T + B1;
+      const arc = (u, peak) => peak * 4 * u * (1 - u);
+      const t0 = performance.now();
+      (function step(now) {
+        if (!live()) return;
+        const e = now - t0;
+        let h;
+        if (e < T) { const u = e / T; h = arc(u, H) + 14 * (1 - u); }
+        else if (e < T + B1) h = arc((e - T) / B1, 28);
+        else if (e < T + B1 + B2) h = arc((e - T - B1) / B2, 8);
+        else h = 0;
+        const p = Math.min(1, e / rotDur), k = 1 - Math.pow(1 - p, 3);
+        rx = sx + (tx - sx) * k; ry = sy + (ty - sy) * k; rz = sz + (tz - sz) * k;
+        draw(h, 1 + 0.12 * Math.max(0, 1 - e / 250));
+        if (e < T + B1 + B2) return requestAnimationFrame(step);
+        rx = tx; ry = ty; rz = tz; draw(0, 1);
+        reveal(n);
+      })(t0);
+    }
+
+    function reveal(n) {
+      setTimeout(() => {
+        if (!live()) return;
+        wrap.style.transform = ''; wrap.classList.add('lifted');
+        num.innerHTML = `<span class="n">${n}</span> stop${n === 1 ? '' : 's'}`;
+        num.classList.add('show');
+        setTimeout(() => { if (live()) showOutcome(); }, calm ? 200 : 1000);
+      }, calm ? 100 : 350);
+    }
+
+    el.addEventListener('pointerdown', (e) => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (x) {} press(); });
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+    el.addEventListener('contextmenu', (e) => e.preventDefault());
+    el.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); press(); } });
+    el.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') release(); });
+  }
 
   // ---------- Events ----------
   app.addEventListener('input', (e) => {
@@ -153,7 +266,9 @@
       }
       case 'roll': G.startMove(state, G.roll()); return commit();
       case 'physical': G.startMove(state, +arg); return commit();
-      case 'fork': G.chooseFork(state, arg); return commit();
+      case 'fork':
+        G.chooseFork(state, arg); save(GAME_KEY, state);
+        return document.getElementById('outcome') ? showOutcome() : render();
       case 'draw': G.drawCard(state); return commit();
       case 'startTimer': G.startChallengeTimer(state); return commit();
       case 'done': G.resolveChallenge(state, true); return commit();
